@@ -1,0 +1,353 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { erpRepository, CentroCusto, TipoCentroCusto, Subempresa } from '@/data';
+import { TreeView, TreeNode } from '@/components/TreeView';
+import { Search, Plus, X, PieChart, Calendar, Building2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+
+export default function CentroCustosPage() {
+  const [centroCustos, setCentroCustos] = useState<CentroCusto[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [apenasAtivos, setApenasAtivos] = useState(true);
+
+  // Modal State
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Form State
+  const [formCodigo, setFormCodigo] = useState('');
+  const [formNome, setFormNome] = useState('');
+  const [formParentId, setFormParentId] = useState<string>('');
+  const [formTipo, setFormTipo] = useState<TipoCentroCusto>('obra');
+  const [formAceitaLancamento, setFormAceitaLancamento] = useState(true);
+  const [formDataInicio, setFormDataInicio] = useState('');
+  const [formDataFim, setFormDataFim] = useState('');
+
+  useEffect(() => {
+    loadData();
+  }, [apenasAtivos]);
+
+  async function loadData() {
+    setLoading(true);
+    const ccList = await erpRepository.getCentrosCusto({ apenasAtivos });
+    setCentroCustos(ccList);
+    setLoading(false);
+  }
+
+  const handleOpenNewModal = (parent?: TreeNode) => {
+    setEditingId(null);
+    if (parent) {
+      setFormParentId(parent.id);
+      setFormTipo((parent as any).tipo || 'obra');
+      setFormCodigo(`${parent.codigo}.`);
+    } else {
+      setFormParentId('');
+      const nextCount = centroCustos.length + 1;
+      setFormCodigo(`CC-${String(nextCount).padStart(3, '0')}`);
+      setFormTipo('obra');
+    }
+    setFormNome('');
+    setFormAceitaLancamento(true);
+    setFormDataInicio('');
+    setFormDataFim('');
+    setModalOpen(true);
+  };
+
+  const handleOpenEditModal = (node: TreeNode) => {
+    const item = centroCustos.find((cc) => cc.id === node.id);
+    if (!item) return;
+    setEditingId(item.id);
+    setFormCodigo(item.codigo);
+    setFormNome(item.nome);
+    setFormParentId(item.parentId || '');
+    setFormTipo(item.tipo);
+    setFormAceitaLancamento(item.aceitaLancamento);
+    setFormDataInicio(item.dataInicio || '');
+    setFormDataFim(item.dataFim || '');
+    setModalOpen(true);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const nivel = formCodigo.split('.').filter(Boolean).length || 1;
+
+    const payload = {
+      codigo: formCodigo,
+      nome: formNome,
+      parentId: formParentId || null,
+      tipo: formTipo,
+      nivel,
+      aceitaLancamento: formAceitaLancamento,
+      dataInicio: formDataInicio || null,
+      dataFim: formDataFim || null,
+      ativo: true
+    };
+
+    if (editingId) {
+      await erpRepository.updateCentroCusto(editingId, payload);
+    } else {
+      await erpRepository.createCentroCusto(payload);
+    }
+
+    setModalOpen(false);
+    loadData();
+  };
+
+  const handleDelete = async (id: string) => {
+    if (confirm('Deseja desativar este centro de custos? (Soft delete)')) {
+      await erpRepository.deleteCentroCusto(id);
+      loadData();
+    }
+  };
+
+  const getTipoBadge = (tipo: TipoCentroCusto) => {
+    switch (tipo) {
+      case 'obra':
+        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 uppercase">Obra</span>;
+      case 'administrativo':
+        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800 uppercase">Admin</span>;
+      case 'frota':
+        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 uppercase">Frota</span>;
+      case 'comercial':
+        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 uppercase">Comercial</span>;
+    }
+  };
+
+  const treeNodes: TreeNode[] = centroCustos
+    .filter((cc) => {
+      if (!searchTerm) return true;
+      return cc.nome.toLowerCase().includes(searchTerm.toLowerCase()) || cc.codigo.includes(searchTerm);
+    })
+    .map((cc) => ({
+      id: cc.id,
+      codigo: cc.codigo,
+      nome: cc.nome,
+      parentId: cc.parentId,
+      nivel: cc.nivel,
+      aceitaLancamento: cc.aceitaLancamento,
+      ativo: cc.ativo,
+      tipo: cc.tipo,
+      subempresaId: cc.subempresaId,
+      metaBadge: (
+        <div className="flex items-center gap-1.5">
+          {cc.subempresaNome && (
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-900 border border-purple-200 flex items-center gap-1">
+              <Building2 className="w-3 h-3 text-purple-700" />
+              {cc.subempresaNome}
+            </span>
+          )}
+          {getTipoBadge(cc.tipo)}
+        </div>
+      ),
+      subInfo: cc.dataInicio ? (
+        <span className="text-[10px] text-ink-muted flex items-center gap-1 font-medium bg-surface-muted px-2 py-0.5 rounded-md">
+          <Calendar className="w-3 h-3" />
+          {cc.dataInicio} {cc.dataFim ? `até ${cc.dataFim}` : ''}
+        </span>
+      ) : undefined
+    }));
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-surface rounded-2xl p-6 shadow-soft border border-black/[0.03]">
+        <div>
+          <h1 className="text-xl font-bold text-ink-primary tracking-tight">Centro de Custos (Obras & Projetos)</h1>
+          <p className="text-xs text-ink-muted mt-1">
+            Estrutura hierárquica por empresa vinculada e tipo de operação (Obras, Frota, Administrativo e Comercial).
+          </p>
+        </div>
+        <button
+          onClick={() => handleOpenNewModal()}
+          className="flex items-center justify-center gap-2 px-4 py-2.5 bg-brand hover:bg-brand-hover text-white rounded-xl text-xs font-semibold shadow-md transition-all active:scale-[0.98]"
+        >
+          <Plus className="w-4 h-4" />
+          <span>Novo Centro de Custo</span>
+        </button>
+      </div>
+
+      {/* Busca, Filtro por Empresa e Ativos */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="relative flex-1 w-full sm:w-80">
+          <Search className="w-4 h-4 text-ink-muted absolute left-3.5 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            placeholder="Filtrar por código ou nome de centro de custos..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full bg-surface border border-black/[0.06] rounded-xl pl-10 pr-4 py-2 text-xs text-ink-primary placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-brand/40 shadow-soft"
+          />
+        </div>
+
+        <div className="flex items-center gap-3 w-full sm:w-auto">
+          <label className="flex items-center gap-2 text-xs font-semibold text-ink-muted bg-surface px-3 py-2 rounded-xl border border-black/[0.06] shadow-soft cursor-pointer">
+            <input
+              type="checkbox"
+              checked={apenasAtivos}
+              onChange={(e) => setApenasAtivos(e.target.checked)}
+              className="rounded border-gray-300 text-brand focus:ring-brand"
+            />
+            Apenas Ativos
+          </label>
+        </div>
+      </div>
+
+      {/* Árvore de Centro de Custos */}
+      <div className="bg-surface rounded-2xl p-5 shadow-soft border border-black/[0.03]">
+        {loading ? (
+          <div className="p-12 text-center text-ink-muted font-medium">Carregando centro de custos...</div>
+        ) : treeNodes.length === 0 ? (
+          <div className="p-12 text-center text-ink-muted">Nenhum centro de custo encontrado.</div>
+        ) : (
+          <TreeView
+            nodes={treeNodes}
+            onAddChild={handleOpenNewModal}
+            onEdit={handleOpenEditModal}
+            onDelete={handleDelete}
+          />
+        )}
+      </div>
+
+      {/* Modal: Formulário de Centro de Custos */}
+      <AnimatePresence>
+        {modalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-surface rounded-2xl p-6 w-full max-w-md shadow-2xl border border-black/10"
+            >
+              <div className="flex items-center justify-between mb-5 border-b border-black/5 pb-3">
+                <h3 className="text-lg font-bold text-ink-primary">
+                  {editingId ? 'Editar Centro de Custo' : 'Novo Centro de Custo'}
+                </h3>
+                <button onClick={() => setModalOpen(false)} className="text-ink-muted hover:text-ink-primary">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSubmit} className="space-y-4">
+
+                <div>
+                  <label className="block text-xs font-semibold text-ink-muted mb-1">Centro de Custo Pai</label>
+                  <select
+                    value={formParentId}
+                    onChange={(e) => setFormParentId(e.target.value)}
+                    className="w-full bg-surface-muted border border-black/10 rounded-xl px-3 py-2 text-xs text-ink-primary focus:outline-none focus:ring-2 focus:ring-brand"
+                  >
+                    <option value="">Nenhum (Nó Raiz)</option>
+                    {centroCustos
+                      .filter((cc) => !cc.aceitaLancamento || cc.id !== editingId)
+                      .map((cc) => (
+                        <option key={cc.id} value={cc.id}>
+                          {cc.codigo} - {cc.nome}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-ink-muted mb-1">Código *</label>
+                    <input
+                      type="text"
+                      placeholder="CC-001"
+                      value={formCodigo}
+                      onChange={(e) => setFormCodigo(e.target.value)}
+                      required
+                      className="w-full bg-surface-muted border border-black/10 rounded-xl px-3 py-2 text-xs text-ink-primary focus:outline-none focus:ring-2 focus:ring-brand font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-ink-muted mb-1">Tipo de Operação *</label>
+                    <select
+                      value={formTipo}
+                      onChange={(e) => setFormTipo(e.target.value as TipoCentroCusto)}
+                      className="w-full bg-surface-muted border border-black/10 rounded-xl px-3 py-2 text-xs text-ink-primary focus:outline-none focus:ring-2 focus:ring-brand"
+                    >
+                      <option value="obra">Obra / Projeto</option>
+                      <option value="administrativo">Administrativo</option>
+                      <option value="frota">Frota & Equipamentos</option>
+                      <option value="comercial">Comercial</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-ink-muted mb-1">Nome do Centro de Custo *</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: Residencial Villa Alpina"
+                    value={formNome}
+                    onChange={(e) => setFormNome(e.target.value)}
+                    required
+                    className="w-full bg-surface-muted border border-black/10 rounded-xl px-3 py-2 text-xs text-ink-primary focus:outline-none focus:ring-2 focus:ring-brand"
+                  />
+                </div>
+
+                {/* Vigência / Datas */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-ink-muted mb-1">Data Início</label>
+                    <input
+                      type="date"
+                      value={formDataInicio}
+                      onChange={(e) => setFormDataInicio(e.target.value)}
+                      className="w-full bg-surface-muted border border-black/10 rounded-xl px-3 py-2 text-xs text-ink-primary focus:outline-none focus:ring-2 focus:ring-brand"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-ink-muted mb-1">Data Término</label>
+                    <input
+                      type="date"
+                      value={formDataFim}
+                      onChange={(e) => setFormDataFim(e.target.value)}
+                      className="w-full bg-surface-muted border border-black/10 rounded-xl px-3 py-2 text-xs text-ink-primary focus:outline-none focus:ring-2 focus:ring-brand"
+                    />
+                  </div>
+                </div>
+
+                {/* Flag aceita_lancamento */}
+                <div className="bg-surface-muted p-3 rounded-xl border border-black/5">
+                  <label className="flex items-center gap-2 text-xs font-bold text-ink-primary cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formAceitaLancamento}
+                      onChange={(e) => setFormAceitaLancamento(e.target.checked)}
+                      className="rounded border-gray-300 text-brand focus:ring-brand w-4 h-4"
+                    />
+                    <span>Aceita Lançamento (Nó Folha)</span>
+                  </label>
+                  <p className="text-[11px] text-ink-muted mt-1">
+                    Nós agrupadores não aceitam rateio financeiro direto.
+                  </p>
+                </div>
+
+                <div className="flex justify-end gap-3 pt-3 border-t border-black/5">
+                  <button
+                    type="button"
+                    onClick={() => setModalOpen(false)}
+                    className="px-4 py-2 rounded-xl text-xs font-semibold text-ink-muted hover:bg-black/5"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 bg-brand hover:bg-brand-hover text-white rounded-xl text-xs font-semibold shadow-md active:scale-[0.98]"
+                  >
+                    Salvar Centro de Custo
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}

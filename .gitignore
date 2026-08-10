@@ -1,0 +1,46 @@
+# ==============================================================================
+# ERP "Melhor Gestão" — arquivos que NÃO entram no controle de versão
+# ==============================================================================
+
+# --- Segredos -----------------------------------------------------------------
+# .env.local contém NEXT_PUBLIC_SUPABASE_URL e a chave do Supabase.
+# Nunca versionar: quem tiver o repositório teria acesso ao banco.
+.env
+.env.local
+.env*.local
+.env.production
+
+# --- Dependências -------------------------------------------------------------
+# Reconstruídas por `npm install` a partir do package-lock.json.
+node_modules/
+.pnp
+.pnp.js
+
+# --- Build e cache do Next.js -------------------------------------------------
+# .next chega a centenas de MB e é 100% regenerável.
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# --- Logs e diagnósticos ------------------------------------------------------
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# --- Sistema operacional ------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Editores -----------------------------------------------------------------
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+
+# --- Cobertura de testes ------------------------------------------------------
+coverage/

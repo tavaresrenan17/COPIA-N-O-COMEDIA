@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --brand-primary: 252 85% 63%;
+    --sidebar-bg: 246 28% 12%;
+    --canvas-bg: 230 25% 97%;
+    --surface: 0 0% 100%;
+  }
+
+  body {
+    background-color: hsl(var(--canvas-bg));
+    color: hsl(246, 22%, 13%);
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Plus Jakarta Sans', 'Segoe UI', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/**
+ * Campos de data do formulário ERP.
+ * O indicador nativo é escondido porque a tela usa o próprio botão de calendário
+ * (o input continua sendo type="date", então mantém máscara dd/mm/aaaa e teclado).
+ */
+.erp-date::-webkit-calendar-picker-indicator {
+  display: none;
+  -webkit-appearance: none;
+}
+.erp-date::-webkit-inner-spin-button,
+.erp-date::-webkit-clear-button {
+  display: none;
+  -webkit-appearance: none;
+}
+
+/* Campos numéricos do ERP são caixas simples, sem as setas do navegador. */
+.erp-num::-webkit-outer-spin-button,
+.erp-num::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.erp-num {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(142, 139, 163, 0.3);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(142, 139, 163, 0.5);
+}
