@@ -881,6 +881,26 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
     },
   ];
 
+  /**
+   * Único caminho para trocar de aba.
+   *
+   * A barra de abas já respeitava o bloqueio, mas os atalhos em texto
+   * chamavam `setAba` direto e furavam a trava — dava para pular o cadastro
+   * inicial e cair nas Parcelas com o título ainda sem credor, valor ou
+   * vencimento, quebrando a ordem do processo.
+   *
+   * Aba bloqueada não navega: sinaliza as pendências para o usuário ver o que
+   * falta preencher.
+   */
+  const irParaAba = (destino: Aba) => {
+    const alvo = abas.find((a) => a.key === destino);
+    if (alvo?.disabled) {
+      setTentouAvancar(true);
+      return;
+    }
+    setAba(destino);
+  };
+
   /* ------------------------------------------------------------------ */
   /* Lookups                                                             */
   /* ------------------------------------------------------------------ */
@@ -1137,7 +1157,7 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
             raiz={{ label: breadcrumbRaiz, href: listaHref }}
             abas={abas}
             ativa={aba}
-            onChange={(k) => setAba(k as Aba)}
+            onChange={(k) => irParaAba(k as Aba)}
             onDisabledClick={() => setTentouAvancar(true)}
           />
         </div>
@@ -1375,16 +1395,12 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
                   </ErpRow>
                 </div>
 
+                {/* Texto puramente informativo. O atalho clicável que existia aqui
+                    convidava a pular o cadastro inicial no meio do preenchimento —
+                    a navegação entre abas fica só na barra do topo. */}
                 <p className="text-[12px] text-erp-label/70 mt-2">
                   As parcelas podem ser adicionadas, ajustadas e parceladas livremente na aba{' '}
-                  <button
-                    type="button"
-                    onClick={() => setAba('parcelas')}
-                    className="text-erp-link hover:underline font-medium"
-                  >
-                    Parcelas
-                  </button>
-                  .
+                  <span className="font-medium">Parcelas</span>.
                 </p>
               </ErpSection>
             </>
@@ -2066,7 +2082,7 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
                   {primeiraAbaComPendencia && primeiraAbaComPendencia !== aba && (
                     <button
                       type="button"
-                      onClick={() => setAba(primeiraAbaComPendencia)}
+                      onClick={() => irParaAba(primeiraAbaComPendencia)}
                       className="text-erp-link hover:underline font-medium"
                     >
                       ir para a aba
