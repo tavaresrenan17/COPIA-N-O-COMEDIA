@@ -474,8 +474,10 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
 
     const compativel = isPagar ? pc.natureza !== 'receita' : pc.natureza === 'receita';
     if (!compativel) {
+      // O aviso visual saiu junto com a seção de classificação; sem ele, limpar
+      // em silêncio faria o título ser reclassificado sozinho no salvamento.
+      // A conta agora vem das linhas de rateio, então só avisamos.
       setPlanoContaIncompativel(`${pc.codigo} ${pc.nome} (${pc.natureza})`);
-      setPlanoContaId('');
     }
   }, [planoContaId, planoContas, isPagar]);
 
@@ -1794,6 +1796,32 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
                     aqui. Cadastre em <strong>Cadastros → Centro de Custos</strong>. Enquanto isso,
                     o título é lançado em &quot;Não alocado&quot;.
                   </span>
+                </div>
+              )}
+
+              {/*
+                Sem linha de rateio não há de onde tirar a conta contábil, e a
+                coluna titulo.plano_conta_id é NOT NULL — o sistema escolheria
+                uma sozinho. Este campo aparece SÓ nesse caso, então não volta a
+                duplicar o "Plano financeiro" da grade.
+              */}
+              {rateios.length === 0 && (
+                <div className="mb-3">
+                  <ErpRow label="Plano de Contas do título">
+                    <ErpLookup
+                      codigo={planoContaSel?.codigo || ''}
+                      descricao={planoContaSel?.nome || ''}
+                      options={lookupConfig.conta.items}
+                      onSelect={lookupConfig.conta.onSelect}
+                      onOpen={() => setLookupAberto('conta')}
+                      onCodeCommit={commitCodigo('conta')}
+                    />
+                  </ErpRow>
+                  <p className="px-1 pt-1 text-[11px] text-erp-label">
+                    {planoContaIncompativel
+                      ? `Este título estava em ${planoContaIncompativel}, incompatível com ${isPagar ? 'contas a pagar' : 'contas a receber'}. Escolha a conta correta.`
+                      : 'Ao incluir linhas de apropriação, a conta passa a vir da linha de maior valor.'}
+                  </p>
                 </div>
               )}
 

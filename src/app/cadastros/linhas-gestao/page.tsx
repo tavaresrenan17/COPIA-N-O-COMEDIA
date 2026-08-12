@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { useToast } from '@/components/ui/ToastProvider';
+import { proximoCodigo } from '@/lib/codigos';
 
 export default function LinhasGestaoPage() {
   const toast = useToast();
@@ -58,8 +59,7 @@ export default function LinhasGestaoPage() {
   const abrirModalNovo = () => {
     setLinhaEditando(null);
     setGrupoGestaoId(grupos[0]?.id || '');
-    const proximoSeq = linhas.reduce((m, l) => Math.max(m, parseInt((l.codigo || '').replace(/\D/g, ''), 10) || 0), 0) + 1;
-    setCodigo(String(proximoSeq).padStart(3, '0'));
+    setCodigo(proximoCodigo(linhas));
     setNome('');
     setDescricao('');
     setAtivo(true);
@@ -340,7 +340,9 @@ export default function LinhasGestaoPage() {
                   type="text"
                   required
                   value={codigo}
-                  onChange={(e) => setCodigo(e.target.value)}
+                  readOnly
+
+                  title="Código gerado automaticamente pelo sistema"
                   className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-hidden focus:border-indigo-600 font-mono"
                 />
               </div>

@@ -5,6 +5,8 @@ import { erpRepository, PlanoConta, NaturezaPlanoConta } from '@/data';
 import { TreeView, TreeNode } from '@/components/TreeView';
 import { Search, Plus, X, FolderTree, CheckCircle2, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { proximoCodigo } from '@/lib/codigos';
+import { descendentesDe, recalcularNiveis } from '@/lib/arvore';
 
 export default function PlanoContasPage() {
   const [planoContas, setPlanoContas] = useState<PlanoConta[]>([]);
@@ -18,6 +20,8 @@ export default function PlanoContasPage() {
 
   // Form State
   const [formCodigo, setFormCodigo] = useState('');
+  /** Lista sem filtro — base da geração de código. */
+  const [todosPlanoContas, setTodosPlanoContas] = useState<PlanoConta[]>([]);
   const [formNome, setFormNome] = useState('');
   const [formParentId, setFormParentId] = useState<string>('');
   const [formNatureza, setFormNatureza] = useState<NaturezaPlanoConta>('despesa');
@@ -29,7 +33,13 @@ export default function PlanoContasPage() {
 
   async function loadData() {
     setLoading(true);
-    const data = await erpRepository.getPlanoContas({ apenasAtivos });
+    // A geração de código precisa da lista COMPLETA: `codigo` é UNIQUE no banco
+    // e a exclusão é lógica — recriar após desativar repetiria um código existente.
+    const [data, todas] = await Promise.all([
+      erpRepository.getPlanoContas({ apenasAtivos }),
+      erpRepository.getPlanoContas({ apenasAtivos: false }),
+    ]);
+    setTodosPlanoContas(todas);
     setPlanoContas(data);
     setLoading(false);
   }
@@ -39,10 +49,10 @@ export default function PlanoContasPage() {
     if (parent) {
       setFormParentId(parent.id);
       setFormNatureza((parent as any).natureza || 'despesa');
-      setFormCodigo(`${parent.codigo}.`);
+      setFormCodigo(proximoCodigo(todosPlanoContas, parent, { raiz: 1, filho: 2 }));
     } else {
       setFormParentId('');
-      setFormCodigo('');
+      setFormCodigo(proximoCodigo(todosPlanoContas, null, { raiz: 1, filho: 2 }));
       setFormNatureza('despesa');
     }
     setFormNome('');
@@ -61,6 +71,11 @@ export default function PlanoContasPage() {
     setFormAceitaLancamento(item.aceitaLancamento);
     setModalOpen(true);
   };
+
+  /** Descendentes da conta em edição — não podem ser oferecidos como pai. */
+  const subarvoreEditada = editingId
+    ? descendentesDe(todosPlanoContas, editingId)
+    : new Set<string>();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -86,10 +101,26 @@ export default function PlanoContasPage() {
       ativo: true
     };
 
+    try {
+      if (editingId) {
+        await erpRepository.updatePlanoConta(editingId, payload);
+      } else {
+        await erpRepository.createPlanoConta(payload);
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Não foi possível salvar a conta.');
+      return;
+    }
+
+    // Mover uma conta muda a profundidade de todo o ramo abaixo dela.
     if (editingId) {
-      await erpRepository.updatePlanoConta(editingId, payload);
-    } else {
-      await erpRepository.createPlanoConta(payload);
+      for (const ajuste of recalcularNiveis(todosPlanoContas, editingId, nivel)) {
+        try {
+          await erpRepository.updatePlanoConta(ajuste.id, { nivel: ajuste.nivel });
+        } catch {
+          /* nível é cosmético na árvore */
+        }
+      }
     }
 
     setModalOpen(false);
@@ -229,9 +260,10 @@ export default function PlanoContasPage() {
                   >
                     <option value="">Nenhuma (Nó Raiz / Nível 1)</option>
                     {planoContas
-                      // Agrupadores, exceto o próprio nó em edição: uma conta
-                      // que vira pai de si mesma some da árvore junto com os filhos.
-                      .filter((p) => !p.aceitaLancamento && p.id !== editingId)
+                      // Agrupadores, exceto o próprio nó e sua subárvore: uma
+                      // conta que vira pai de si mesma (ou de um descendente)
+                      // some da árvore junto com o ramo inteiro.
+                      .filter((p) => !p.aceitaLancamento && p.id !== editingId && !subarvoreEditada.has(p.id))
                       .map((p) => (
                         <option key={p.id} value={p.id}>
                           {p.codigo} - {p.nome}
@@ -247,7 +279,9 @@ export default function PlanoContasPage() {
                       type="text"
                       placeholder="Ex: 1.1.01"
                       value={formCodigo}
-                      onChange={(e) => setFormCodigo(e.target.value)}
+                      readOnly
+
+                      title="Código gerado automaticamente pelo sistema"
                       required
                       className="w-full bg-surface-muted border border-black/10 rounded-xl px-3 py-2 text-xs text-ink-primary focus:outline-none focus:ring-2 focus:ring-brand font-mono"
                     />

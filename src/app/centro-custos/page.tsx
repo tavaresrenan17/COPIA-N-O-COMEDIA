@@ -5,6 +5,8 @@ import { erpRepository, CentroCusto, TipoCentroCusto, Subempresa } from '@/data'
 import { TreeView, TreeNode } from '@/components/TreeView';
 import { Search, Plus, X, PieChart, Calendar, Building2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { proximoCodigo } from '@/lib/codigos';
+import { descendentesDe, recalcularNiveis } from '@/lib/arvore';
 
 export default function CentroCustosPage() {
   const [centroCustos, setCentroCustos] = useState<CentroCusto[]>([]);
@@ -49,11 +51,12 @@ export default function CentroCustosPage() {
     if (parent) {
       setFormParentId(parent.id);
       setFormTipo((parent as any).tipo || 'obra');
-      setFormCodigo(`${parent.codigo}.`);
+      setFormCodigo(proximoCodigo(todosCentroCustos, parent));
     } else {
       setFormParentId('');
-      const nextCount = centroCustos.length + 1;
-      setFormCodigo(`CC-${String(nextCount).padStart(3, '0')}`);
+      // Antes: `CC-${centroCustos.length + 1}` — contar linhas fazia o número
+      // retroceder após uma exclusão e colidir com o código único.
+      setFormCodigo(proximoCodigo(todosCentroCustos));
       setFormTipo('obra');
     }
     setFormNome('');
@@ -76,6 +79,11 @@ export default function CentroCustosPage() {
     setFormDataFim(item.dataFim || '');
     setModalOpen(true);
   };
+
+  /** Descendentes do nó em edição — não podem ser oferecidos como pai. */
+  const subarvoreEditada = editingId
+    ? descendentesDe(todosCentroCustos, editingId)
+    : new Set<string>();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -119,13 +127,27 @@ export default function CentroCustosPage() {
       return;
     }
 
+    // Mover um nó muda a profundidade de tudo abaixo dele.
+    if (editingId) {
+      for (const ajuste of recalcularNiveis(todosCentroCustos, editingId, nivel)) {
+        try {
+          await erpRepository.updateCentroCusto(ajuste.id, { nivel: ajuste.nivel });
+        } catch {
+          /* nível é cosmético na árvore: não vale abortar o salvamento por ele */
+        }
+      }
+    }
+
     /*
      * Nó que ganhou filho deixa de aceitar lançamento.
      *
      * Sem isso o custo poderia ser lançado no pai E nos filhos, e o total do
      * pai somaria as duas coisas — dobrando o valor no relatório.
      */
-    if (pai && pai.aceitaLancamento) {
+    // O CC-999 "Não alocado" é o destino padrão do sistema: rebaixá-lo a
+    // agrupador tiraria o único lugar onde títulos sem obra podem cair.
+    const CC_NAO_ALOCADO = '99999999-9999-9999-9999-999999999999';
+    if (pai && pai.aceitaLancamento && pai.id !== CC_NAO_ALOCADO) {
       try {
         await erpRepository.updateCentroCusto(pai.id, { aceitaLancamento: false });
       } catch {
@@ -284,9 +306,10 @@ export default function CentroCustosPage() {
                   >
                     <option value="">Nenhum (Nó Raiz)</option>
                     {todosCentroCustos
-                      // Nunca oferecer o próprio nó: virar pai de si mesmo some
-                      // com ele e com toda a subárvore ao montar a árvore.
-                      .filter((cc) => cc.id !== editingId)
+                      // Fora: o próprio nó, sua subárvore (viraria ciclo e o ramo
+                      // sumiria da tela) e os inativos (o filho apareceria solto
+                      // na raiz, com indentação errada).
+                      .filter((cc) => cc.ativo && cc.id !== editingId && !subarvoreEditada.has(cc.id))
                       .map((cc) => (
                         <option key={cc.id} value={cc.id}>
                           {cc.codigo} - {cc.nome}
@@ -302,7 +325,9 @@ export default function CentroCustosPage() {
                       type="text"
                       placeholder="CC-001"
                       value={formCodigo}
-                      onChange={(e) => setFormCodigo(e.target.value)}
+                      readOnly
+
+                      title="Código gerado automaticamente pelo sistema"
                       required
                       className="w-full bg-surface-muted border border-black/10 rounded-xl px-3 py-2 text-xs text-ink-primary focus:outline-none focus:ring-2 focus:ring-brand font-mono"
                     />
