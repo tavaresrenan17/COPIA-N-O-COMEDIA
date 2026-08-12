@@ -24,6 +24,8 @@ export default function CentroCustosPage() {
   const [formAceitaLancamento, setFormAceitaLancamento] = useState(true);
   const [formDataInicio, setFormDataInicio] = useState('');
   const [formDataFim, setFormDataFim] = useState('');
+  /** Lista sem filtro — usada no seletor de pai e no cálculo de nível. */
+  const [todosCentroCustos, setTodosCentroCustos] = useState<CentroCusto[]>([]);
 
   useEffect(() => {
     loadData();
@@ -31,8 +33,14 @@ export default function CentroCustosPage() {
 
   async function loadData() {
     setLoading(true);
-    const ccList = await erpRepository.getCentrosCusto({ apenasAtivos });
+    // A lista completa alimenta o seletor de pai e o cálculo de nível: com o
+    // filtro "apenas ativos" ligado, um pai inativo sumia e o nível saía errado.
+    const [ccList, todos] = await Promise.all([
+      erpRepository.getCentrosCusto({ apenasAtivos }),
+      erpRepository.getCentrosCusto({ apenasAtivos: false }),
+    ]);
     setCentroCustos(ccList);
+    setTodosCentroCustos(todos);
     setLoading(false);
   }
 
@@ -72,7 +80,21 @@ export default function CentroCustosPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    const nivel = formCodigo.split('.').filter(Boolean).length || 1;
+    /*
+     * O nível vem do PAI, não do formato do código.
+     *
+     * Antes era `formCodigo.split('.').length`: criar "CC-002" sob um pai
+     * gerava nível 1 com parent_id preenchido — filho declarado como raiz.
+     * É o mesmo defeito que deixou o plano de contas com "3.1.01" no nível 2.
+     */
+    const pai = formParentId ? todosCentroCustos.find((cc) => cc.id === formParentId) : null;
+    if (formParentId && !pai) {
+      // Sem o pai em mãos o nível sairia 1 com parent_id preenchido — justamente
+      // o "filho declarado como raiz" que esta correção existe para evitar.
+      alert('Não foi possível identificar o centro de custo pai. Recarregue a tela e tente de novo.');
+      return;
+    }
+    const nivel = pai ? pai.nivel + 1 : 1;
 
     const payload = {
       codigo: formCodigo,
@@ -86,10 +108,31 @@ export default function CentroCustosPage() {
       ativo: true
     };
 
-    if (editingId) {
-      await erpRepository.updateCentroCusto(editingId, payload);
-    } else {
-      await erpRepository.createCentroCusto(payload);
+    try {
+      if (editingId) {
+        await erpRepository.updateCentroCusto(editingId, payload);
+      } else {
+        await erpRepository.createCentroCusto(payload);
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Não foi possível salvar o centro de custo.');
+      return;
+    }
+
+    /*
+     * Nó que ganhou filho deixa de aceitar lançamento.
+     *
+     * Sem isso o custo poderia ser lançado no pai E nos filhos, e o total do
+     * pai somaria as duas coisas — dobrando o valor no relatório.
+     */
+    if (pai && pai.aceitaLancamento) {
+      try {
+        await erpRepository.updateCentroCusto(pai.id, { aceitaLancamento: false });
+      } catch {
+        // O filho já foi gravado: avisar sem travar o usuário num modal que,
+        // ao ser reenviado, esbarraria no código único.
+        alert('O centro de custo foi salvo, mas não foi possível marcar o pai como agrupador. Ajuste manualmente.');
+      }
     }
 
     setModalOpen(false);
@@ -240,8 +283,10 @@ export default function CentroCustosPage() {
                     className="w-full bg-surface-muted border border-black/10 rounded-xl px-3 py-2 text-xs text-ink-primary focus:outline-none focus:ring-2 focus:ring-brand"
                   >
                     <option value="">Nenhum (Nó Raiz)</option>
-                    {centroCustos
-                      .filter((cc) => !cc.aceitaLancamento || cc.id !== editingId)
+                    {todosCentroCustos
+                      // Nunca oferecer o próprio nó: virar pai de si mesmo some
+                      // com ele e com toda a subárvore ao montar a árvore.
+                      .filter((cc) => cc.id !== editingId)
                       .map((cc) => (
                         <option key={cc.id} value={cc.id}>
                           {cc.codigo} - {cc.nome}

@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import Link from 'next/link';
-import { Headphones, Bell, Building2, LogOut, ShieldCheck } from 'lucide-react';
+import { Building2, LogOut, ShieldCheck } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import { DEPARTMENTS } from '@/data/departments';
 import { useAuth } from '@/context/AuthContext';
@@ -22,7 +22,9 @@ export function Topbar() {
   const activeDepartment = activeDepartmentId ? DEPARTMENTS[activeDepartmentId] : undefined;
 
   const titleMap: Record<string, string> = {
-    '/': 'Análises & Indicadores Globais',
+    // A Home já tem seu próprio cabeçalho com saudação e data; repetir um
+    // título na topbar era redundante.
+    '/': '',
     '/departamentos': 'Hub de Departamentos',
     '/cadastros': 'Bases de Cadastros',
     '/relatorios': 'Relatórios Executivos',
@@ -74,7 +76,7 @@ export function Topbar() {
     'ERP MVP';
 
   useEffect(() => {
-    document.title = `${title} — MVP`;
+    document.title = title ? `${title} — MVP` : 'MVP Sistema ERP';
   }, [title]);
 
   // Se estiver na tela de login, não renderiza a Topbar
@@ -98,36 +100,13 @@ export function Topbar() {
             <span>{activeDepartment.name}</span>
           </div>
         )}
-        <p className="text-2xl font-bold text-ink-primary tracking-tight">
-          {title}
-        </p>
+        {title && (
+          <p className="text-2xl font-bold text-ink-primary tracking-tight">{title}</p>
+        )}
       </div>
 
       {/* Right Controls */}
       <div className="flex items-center gap-6">
-        <div className="flex items-center gap-3 text-ink-muted">
-          <button
-            type="button"
-            disabled
-            className="p-2 rounded-full opacity-40 cursor-not-allowed"
-            title="Suporte (em breve)"
-            aria-label="Suporte (em breve)"
-          >
-            <Headphones className="w-5 h-5" />
-          </button>
-          <button
-            type="button"
-            disabled
-            className="p-2 rounded-full opacity-40 cursor-not-allowed relative"
-            title="Notificações (em breve)"
-            aria-label="Notificações (em breve)"
-          >
-            <Bell className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div className="h-8 w-px bg-black/10"></div>
-
         {/* User Profile */}
         <div className="flex items-center gap-3">
           <Link

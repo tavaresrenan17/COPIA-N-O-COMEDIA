@@ -421,10 +421,17 @@ export class SupabaseErpRepository implements IErpRepository {
 
   async updatePlanoConta(id: string, data: Partial<PlanoConta>): Promise<PlanoConta> {
     if (!this.client) return this.fallbackMock.updatePlanoConta(id, data);
-    const { error } = await this.client.from('plano_conta').update({
-      nome: data.nome,
-      ativo: data.ativo
-    }).eq('id', id);
+    // Mesmo defeito do centro de custo: só nome e ativo chegavam ao banco.
+    const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (data.codigo !== undefined) payload.codigo = data.codigo;
+    if (data.nome !== undefined) payload.nome = data.nome;
+    if (data.parentId !== undefined) payload.parent_id = toUuidOrNull(data.parentId);
+    if (data.natureza !== undefined) payload.natureza = data.natureza;
+    if (data.nivel !== undefined) payload.nivel = data.nivel;
+    if (data.aceitaLancamento !== undefined) payload.aceita_lancamento = data.aceitaLancamento;
+    if (data.ativo !== undefined) payload.ativo = data.ativo;
+
+    const { error } = await this.client.from('plano_conta').update(payload).eq('id', id);
     this.cache.invalidar('plano_conta');   // só depois da escrita confirmada
     if (error) throw new Error(error.message);
     return this.getPlanoContaById(id) as Promise<PlanoConta>;
@@ -530,10 +537,23 @@ export class SupabaseErpRepository implements IErpRepository {
 
   async updateCentroCusto(id: string, data: Partial<CentroCusto>): Promise<CentroCusto> {
     if (!this.client) return this.fallbackMock.updateCentroCusto(id, data);
-    const { error } = await this.client.from('centro_custo').update({
-      nome: data.nome,
-      ativo: data.ativo
-    }).eq('id', id);
+    /*
+     * Gravava só nome e ativo: editar um centro de custo descartava pai, tipo,
+     * nível, aceita-lançamento e vigência sem avisar. A tela mostrava sucesso e
+     * a árvore continuava como estava.
+     */
+    const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (data.codigo !== undefined) payload.codigo = data.codigo;
+    if (data.nome !== undefined) payload.nome = data.nome;
+    if (data.parentId !== undefined) payload.parent_id = toUuidOrNull(data.parentId);
+    if (data.tipo !== undefined) payload.tipo = data.tipo;
+    if (data.nivel !== undefined) payload.nivel = data.nivel;
+    if (data.aceitaLancamento !== undefined) payload.aceita_lancamento = data.aceitaLancamento;
+    if (data.dataInicio !== undefined) payload.data_inicio = data.dataInicio || null;
+    if (data.dataFim !== undefined) payload.data_fim = data.dataFim || null;
+    if (data.ativo !== undefined) payload.ativo = data.ativo;
+
+    const { error } = await this.client.from('centro_custo').update(payload).eq('id', id);
     this.cache.invalidar('centro_custo');   // só depois da escrita confirmada
     if (error) throw new Error(error.message);
     return this.getCentroCustoById(id) as Promise<CentroCusto>;

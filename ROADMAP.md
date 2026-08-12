@@ -219,14 +219,22 @@ Marque `[x]` conforme concluir.
    dados, confirmar que o dado existe — exigir rateio sem centro de custo
    cadastrado tornou o formulário insolúvel.
 
-3. **Medir antes de concluir.** Dois diagnósticos furaram por amostra pequena:
+3. **Revisar o próprio trabalho antes de entregar.** Terminada a correção,
+   rodar `/code-review high` sobre o diff e corrigir o que aparecer. Atenção
+   redobrada quando a correção **destrava um caminho antes inerte** — campo que
+   passa a ser gravado, botão que passa a funcionar: é onde os bugs latentes
+   acordam. Ao consertar `updateCentroCusto`, que gravava só `nome` e `ativo`,
+   a revisão apontou 7 problemas, vários criados pela própria correção. O `tsc`
+   estava limpo em todos eles.
+
+4. **Medir antes de concluir.** Dois diagnósticos furaram por amostra pequena:
    "banco distante" era ruído de rede (está em `sa-east-1` e responde em 27 ms),
    e uma invalidação de cache foi colocada antes da escrita em vez de depois.
    Ambos só apareceram na segunda medição.
 
-4. **Não escrever no banco de produção em teste sem avisar antes**, e limpar o
+5. **Não escrever no banco de produção em teste sem avisar antes**, e limpar o
    resíduo. Não existe staging — o `.env.local` aponta para o banco do cliente.
 
-5. **Nunca rodar `next build` com o `next dev` ligado** — os dois escrevem em
+6. **Nunca rodar `next build` com o `next dev` ligado** — os dois escrevem em
    `.next/` e o build corrompe o dev server (sintoma: erros de
    `React Client Manifest` e 500 em todas as rotas).

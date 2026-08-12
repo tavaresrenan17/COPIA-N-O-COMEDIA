@@ -8,7 +8,7 @@
  * direita, campos de lookup com lupa, datas com botão de calendário e seções
  * colapsáveis.
  *
- * O registro é dividido em abas (Cadastro, Parcelas, Alocação e Aprop. Obras),
+ * O registro é dividido em abas (Cadastro, Parcelas, Alocação e Apropriação),
  * mas continua sendo um único formulário: a validação é global e a barra de
  * ações fica visível em todas elas.
  *
@@ -664,6 +664,22 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
   /** Conta contábil efetiva da linha: a própria, ou a do título quando não houver. */
   const planoDaLinha = (r: ItemRateioState) => r.planoContaId || planoContaId;
 
+  /**
+   * Plano de contas do título = o da linha de rateio de maior valor.
+   *
+   * O campo separado no topo desta aba pedia a mesma informação que já é
+   * escolhida por linha na grade abaixo — duas entradas para o mesmo dado,
+   * com risco de divergirem. Agora a grade é a fonte, e o título herda a
+   * classificação predominante (a coluna `titulo.plano_conta_id` é NOT NULL).
+   */
+  const planoContaDominante = (() => {
+    const comPlano = rateios.filter((r) => r.planoContaId);
+    if (comPlano.length === 0) return planoContaId;
+    return comPlano.reduce((a, b) =>
+      parseCentavos(b.valorReais) > parseCentavos(a.valorReais) ? b : a
+    ).planoContaId;
+  })();
+
   const handleAddRateio = () => {
     if (centroCustos.length === 0) return;
     setRateios((prev) => {
@@ -874,10 +890,10 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
     },
     {
       key: 'apropria-obra',
-      label: 'Apropriação de Obra',
+      label: 'Apropriação',
       alerta: pendenciasPorAba['apropria-obra'].length > 0,
       disabled: !isCadastroCompleto,
-      disabledReason: 'Preencha o cadastro inicial completo para liberar a aba Apropriação de Obra.',
+      disabledReason: 'Preencha o cadastro inicial completo para liberar a aba Apropriação.',
     },
   ];
 
@@ -1068,7 +1084,8 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
         pessoaNome: pessoaSel?.nome,
         grupoGestaoId: grupoGestaoId || undefined,
         linhaGestaoId: linhaGestaoId || undefined,
-        planoContaId,
+        // Vazio é aceito: o repositório resolve a conta compatível com o tipo.
+        planoContaId: planoContaDominante ?? '',
         numeroDocumento,
         // O tipo de documento ainda não tem coluna própria em Titulo; vai na série.
         serie: tipoDocumento?.codigo,
@@ -1179,7 +1196,7 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
               <div className="flex items-center gap-2 font-medium">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                 <span>
-                  <strong>Título salvo com sucesso!</strong> Os dados foram salvos. Você pode continuar preenchendo as demais abas (Parcelas, Alocação de Títulos e Apropriação de Obra).
+                  <strong>Título salvo com sucesso!</strong> Os dados foram salvos. Você pode continuar preenchendo as demais abas (Parcelas, Alocação de Títulos e Apropriação).
                 </span>
               </div>
               <button
@@ -1197,7 +1214,7 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
               <div className="flex items-center gap-2 font-medium">
                 <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
                 <span>
-                  <strong>Cadastro Inicial Incompleto:</strong> Preencha os campos obrigatórios destacados em vermelho abaixo para liberar as abas de Parcelas, Alocação de Títulos e Apropriação de Obra.
+                  <strong>Cadastro Inicial Incompleto:</strong> Preencha os campos obrigatórios destacados em vermelho abaixo para liberar as abas de Parcelas, Alocação de Títulos e Apropriação.
                 </span>
               </div>
             </div>
@@ -1749,47 +1766,8 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
           {/* ABA: APROPRIAÇÃO DE OBRA                                     */}
           {/* ============================================================ */}
           {aba === 'apropria-obra' && (
-            <>
-            {/*
-              Plano de contas do título. Fica aqui provisoriamente: a aba de
-              Cadastro é o básico e não deve travar o lançamento, e este campo
-              não tinha lugar nenhum na tela — o lookup 'conta' existia
-              configurado mas nenhum botão o abria.
-
-              É a classificação padrão do título; cada linha de rateio pode
-              sobrescrevê-la no campo "Plano financeiro" da grade abaixo.
-            */}
-            <ErpSection title="Classificação contábil do título">
-              <ErpRow label="Plano de Contas">
-                <ErpLookup
-                  codigo={planoContaSel?.codigo || ''}
-                  descricao={planoContaSel?.nome || ''}
-                  options={lookupConfig.conta.items}
-                  onSelect={lookupConfig.conta.onSelect}
-                  onOpen={() => setLookupAberto('conta')}
-                  onCodeCommit={commitCodigo('conta')}
-                />
-              </ErpRow>
-              {planoContaIncompativel && (
-                <p className="mx-1 mt-2 flex items-start gap-1.5 border border-amber-300 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800">
-                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                  <span>
-                    Este título estava classificado em <strong>{planoContaIncompativel}</strong>, que
-                    não vale para {isPagar ? 'contas a pagar' : 'contas a receber'}. O campo foi
-                    limpo — escolha a conta correta.
-                  </span>
-                </p>
-              )}
-
-              <p className="px-1 pt-1 text-[11px] text-erp-label">
-                {planoContaSel
-                  ? `Natureza: ${planoContaSel.natureza}. As linhas de rateio sem plano próprio herdam esta conta.`
-                  : `Em branco, o sistema atribui a primeira conta compatível com ${isPagar ? 'contas a pagar' : 'contas a receber'}. Informe para classificar corretamente.`}
-              </p>
-            </ErpSection>
-
             <ErpSection
-              title="Apropriação de despesas por Obra / Centro de Custo"
+              title="Apropriação por Centro de Custo"
               aside={
                 <span
                   className={`inline-flex items-center gap-1.5 px-2 py-0.5 border text-[12px] ${
@@ -1807,6 +1785,18 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
                 </span>
               }
             >
+              {centroCustos.length === 0 && (
+                <div className="mb-3 flex items-start gap-2 border border-amber-300 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>
+                    <strong>Nenhum centro de custo disponível.</strong> Todos os botões desta aba
+                    dependem de pelo menos uma obra / centro de custo ativo, por isso nada responde
+                    aqui. Cadastre em <strong>Cadastros → Centro de Custos</strong>. Enquanto isso,
+                    o título é lançado em &quot;Não alocado&quot;.
+                  </span>
+                </div>
+              )}
+
               <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-[12px] text-erp-label mb-3">
                 <span>
                   Valor a apropriar:{' '}
@@ -2004,7 +1994,6 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
                 </div>
               </div>
             </ErpSection>
-            </>
           )}
 
           {/* ============================================================ */}

@@ -44,3 +44,6 @@ desktop.ini
 
 # --- Cobertura de testes ------------------------------------------------------
 coverage/
+
+# Configuração local do Claude Code (regras de permissão da máquina)
+.claude/settings.local.json

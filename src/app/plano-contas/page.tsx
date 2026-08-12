@@ -65,8 +65,16 @@ export default function PlanoContasPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Calcula o nível com base nos pontos do código
-    const nivel = formCodigo.split('.').filter(Boolean).length || 1;
+    /*
+     * Nível vem do PAI, não da quantidade de pontos no código — foi assim que
+     * "3.1.01" acabou gravado no nível 2, pendurado direto no nó de nível 1.
+     */
+    const pai = formParentId ? planoContas.find((p) => p.id === formParentId) : null;
+    if (formParentId && !pai) {
+      alert('Não foi possível identificar a conta pai. Recarregue a tela e tente de novo.');
+      return;
+    }
+    const nivel = pai ? pai.nivel + 1 : 1;
 
     const payload = {
       codigo: formCodigo,
@@ -221,7 +229,9 @@ export default function PlanoContasPage() {
                   >
                     <option value="">Nenhuma (Nó Raiz / Nível 1)</option>
                     {planoContas
-                      .filter((p) => !p.aceitaLancamento) // Apresenta apenas nós agrupadores como opção de Pai
+                      // Agrupadores, exceto o próprio nó em edição: uma conta
+                      // que vira pai de si mesma some da árvore junto com os filhos.
+                      .filter((p) => !p.aceitaLancamento && p.id !== editingId)
                       .map((p) => (
                         <option key={p.id} value={p.id}>
                           {p.codigo} - {p.nome}
