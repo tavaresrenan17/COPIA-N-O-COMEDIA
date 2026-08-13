@@ -1,0 +1,12 @@
+[
+  "Bash(npx tsc *)",
+  "Bash(rm -rf .next)",
+  "Bash(npx next *)",
+  "Bash(python -)",
+  "Bash(python \"C:/Users/RENANA~1/AppData/Local/Temp/claude/c--Users-RenanAdministrativo-Documents-COPIA-N-O-COMEDIA/25f0f68d-1806-4fa0-a671-84cff24f778d/scratchpad/abas.py\")",
+  "Bash(echo \"TSC=$?\")",
+  "PowerShell($c = Get-NetTCPConnection -State Listen -LocalPort 3000,3001 -ErrorAction SilentlyContinue; if \\($c\\) { $c.OwningProcess | Select-Object -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue } }; Start-Sleep -Seconds 3; if \\($null -eq \\(Get-NetTCPConnection -State Listen -LocalPort 3000,3001 -ErrorAction SilentlyContinue\\)\\) { \"portas livres\" } else { \"ainda ocupadas\" })",
+  "Bash(python \"C:/Users/RENANA~1/AppData/Local/Temp/claude/c--Users-RenanAdministrativo-Documents-COPIA-N-O-COMEDIA/25f0f68d-1806-4fa0-a671-84cff24f778d/scratchpad/p2.py\")",
+  "Bash(python \"C:/Users/RENANA~1/AppData/Local/Temp/claude/c--Users-RenanAdministrativo-Documents-COPIA-N-O-COMEDIA/25f0f68d-1806-4fa0-a671-84cff24f778d/scratchpad/fix5.py\")",
+  "Bash(python \"C:/Users/RENANA~1/AppData/Local/Temp/claude/c--Users-RenanAdministrativo-Documents-COPIA-N-O-COMEDIA/25f0f68d-1806-4fa0-a671-84cff24f778d/scratchpad/doctor.py\")"
+]

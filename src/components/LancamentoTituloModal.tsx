@@ -344,14 +344,14 @@ export function LancamentoTituloModal({ tipo, isOpen, onClose, onSuccess }: Lanc
       return;
     }
 
-    // Validação da soma de parcelas
+    // Validação da soma de parcelas (apenas se parcelas forem customizadas pelo usuário)
     const somaParcelasCentavos = parcelas.reduce((sum, p) => sum + parseCentavos(p.valorReais), 0);
-    if (somaParcelasCentavos !== totalBrutoCentavos) {
+    if (parcelas.length > 0 && somaParcelasCentavos !== totalBrutoCentavos) {
       setParcelaSumError('A soma das parcelas deve ser exatamente igual ao Valor Bruto do título.');
       return;
     }
 
-    // Validação de Rateio em 100%
+    // Validação de Rateio em 100% (apenas se rateio foi customizado pelo usuário)
     if (rateios.length > 0 && !isRateioValido) {
       alert('O rateio por centro de custo deve somar exatamente 100,00%.');
       return;
@@ -369,7 +369,7 @@ export function LancamentoTituloModal({ tipo, isOpen, onClose, onSuccess }: Lanc
       observacaoFinal += `\n[ESTOURO DE ORÇAMENTO CONFIRMADO POR ${usuarioLogado} EM ${nowStr}]`;
     }
 
-    // Montagem do Rateio Final (se vazio, usa o fallback CC-999 Não alocado)
+    // Montagem do Rateio Final (se vazio, usa o primeiro centro de custo ativo ou fallback CC-999)
     const rateiosFinal = rateios.length > 0
       ? rateios.map(r => ({
           centroCustoId: r.centroCustoId,
@@ -377,9 +377,17 @@ export function LancamentoTituloModal({ tipo, isOpen, onClose, onSuccess }: Lanc
           valorCentavos: parseCentavos(r.valorReais)
         }))
       : [{
-          centroCustoId: 'cc-999', // Não alocado
+          centroCustoId: centroCustos.length > 0 ? centroCustos[0].id : 'cc-999',
           percentual: 100,
           valorCentavos: totalBrutoCentavos
+        }];
+
+    const parcelasEfetivas = parcelas.length > 0
+      ? parcelas
+      : [{
+          numero: 1,
+          dataVencimento: primeiroVencimento || new Date().toISOString().split('T')[0],
+          valorReais: valorBrutoReais
         }];
 
     await erpRepository.createTitulo({
@@ -396,15 +404,15 @@ export function LancamentoTituloModal({ tipo, isOpen, onClose, onSuccess }: Lanc
       dataEmissao,
       dataCompetencia,
       valorBrutoCentavos: totalBrutoCentavos,
-      qtdParcelas,
+      qtdParcelas: parcelasEfetivas.length,
       descricao: descBase,
       observacao: observacaoFinal,
       usuario: usuarioLogado,
-      parcelas: parcelas.map(p => ({
+      parcelas: parcelasEfetivas.map(p => ({
         numero: p.numero,
         dataVencimento: p.dataVencimento,
         valorCentavos: parseCentavos(p.valorReais),
-        observacao: `Parcela ${p.numero}/${qtdParcelas}`,
+        observacao: `Parcela ${p.numero}/${parcelasEfetivas.length}`,
         rateios: rateiosFinal.map(r => ({
           ...r,
           valorCentavos: Math.round((parseCentavos(p.valorReais) * r.percentual) / 100)

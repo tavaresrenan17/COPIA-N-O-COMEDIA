@@ -120,7 +120,8 @@ export interface IErpRepository {
 
   // 2. PLANO DE CONTAS
   getPlanoContas(filtro?: { apenasAtivos?: boolean }): Promise<PlanoConta[]>;
-  getPlanoContasFolhas(natureza?: string): Promise<PlanoConta[]>;
+  /** `natureza` aceita uma ou várias — títulos a pagar usam três (custo/despesa/investimento). */
+  getPlanoContasFolhas(natureza?: string | string[]): Promise<PlanoConta[]>;
   getPlanoContaById(id: string): Promise<PlanoConta | null>;
   createPlanoConta(data: Omit<PlanoConta, 'id' | 'createdAt' | 'updatedAt'>): Promise<PlanoConta>;
   updatePlanoConta(id: string, data: Partial<PlanoConta>): Promise<PlanoConta>;

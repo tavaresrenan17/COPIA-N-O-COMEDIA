@@ -688,16 +688,30 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
 
   const handleAddRateio = () => {
     if (centroCustos.length === 0) return;
-    setRateios((prev) => {
-      // A linha nova já entra aberta para edição.
-      setLinhaRateioEditando(prev.length);
-      return [...prev, { centroCustoId: centroCustos[0].id, percentualStr: '0,00', valorReais: '0,00' }];
-    });
+    const restante = Math.max(0, Number((100 - somaPercentualRateio).toFixed(2)));
+    const percStr = restante > 0 ? restante.toFixed(2).replace('.', ',') : '0,00';
+    const valStr = formatCentavos(Math.round((valorLiquidoCentavos * restante) / 100));
+    setRateios((prev) => [
+      ...prev,
+      { centroCustoId: centroCustos[0].id, percentualStr: percStr, valorReais: valStr },
+    ]);
   };
 
   const handleRemoveRateio = (index: number) => {
     setRateios((prev) => prev.filter((_, i) => i !== index));
     setLinhaRateioEditando(null);
+  };
+
+  const handleRateioChange = (
+    idx: number,
+    campo: 'centroCustoId' | 'planoContaId',
+    valor: string
+  ) => {
+    setRateios((prev) => {
+      const copy = [...prev];
+      copy[idx] = { ...copy[idx], [campo]: valor };
+      return copy;
+    });
   };
 
   /** Devolve a apropriação ao padrão do título: a obra escolhida no cadastro, 100%. */
@@ -765,10 +779,16 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
      * Para reativar: restaure a consulta abaixo e remova `inativo: true` do
      * módulo Orçamentos em src/data/departments.ts.
      *
-     *   for (const r of rateios) {
-     *     res[i] = await erpRepository.validarDisponibilidadeOrcamentaria(
-     *       r.centroCustoId, r.planoContaId || planoContaId, parseCentavos(r.valorReais));
+     *   if (isPagar) {                       // <- orçamento é conceito de DESPESA
+     *     for (const r of rateios) {
+     *       res[i] = await erpRepository.validarDisponibilidadeOrcamentaria(
+     *         r.centroCustoId, r.planoContaId || planoContaId, parseCentavos(r.valorReais));
+     *     }
      *   }
+     *
+     * O guarda `isPagar` é obrigatório: sem ele, reativar passaria a exigir
+     * confirmação de estouro orçamentário em títulos a RECEBER, invertendo a
+     * regra que o resto do sistema aplica (mock.repository.ts filtra tipo === 'P').
      */
     setDisponibilidades({});
     setConfirmarEstouroCheck(false);
@@ -822,28 +842,16 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
 
     const parcelasPend: string[] = [];
     if (parcelaSumError) parcelasPend.push(parcelaSumError);
-    if (valorLiquidoCentavos > 0 && parcelas.length === 0)
-      parcelasPend.push('Nenhuma parcela gerada para o título.');
 
     const alocacaoPend: string[] = [];
-    if (!isRateioGestaoValido)
+    if (rateiosGestao.length > 0 && !isRateioGestaoValido)
       alocacaoPend.push('A alocação por grupo/linha de gestão deve somar 100,00%.');
     if (rateiosGestao.some((r) => !r.grupoGestaoId))
       alocacaoPend.push('Há linha de alocação sem grupo de gestão informado.');
 
     const apropPend: string[] = [];
-    /*
-     * Rateio vazio era considerado válido e o título inteiro caía silenciosamente
-     * em "Não alocado", fora do controle de custos. Agora é pendência —  mas SÓ
-     * quando existe centro de custo cadastrado para escolher.
-     *
-     * Sem essa ressalva o formulário fica impossível de concluir: se nenhum
-     * centro de custo estiver ativo, o combo vem vazio, não há como montar o
-     * rateio e a pendência nunca seria resolvida.
-     */
-    if (centroCustos.length > 0 && rateios.length === 0)
-      apropPend.push('Informe a apropriação por centro de custo (ou use "Aplicar 100% na obra do título").');
-    if (!isRateioValido) apropPend.push('A apropriação por centro de custo deve somar 100,00%.');
+    if (rateios.length > 0 && !isRateioValido)
+      apropPend.push('A apropriação por centro de custo deve somar 100,00%.');
     if (temAlgumEstouro && !confirmarEstouroCheck)
       apropPend.push('Confirme o estouro de orçamento para prosseguir.');
 
@@ -856,22 +864,38 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
   }, [
     errosCadastro,
     parcelaSumError,
-    parcelas.length,
-    valorLiquidoCentavos,
     isRateioGestaoValido,
     rateiosGestao,
     isRateioValido,
     rateios.length,
-    centroCustos.length,
     temAlgumEstouro,
     confirmarEstouroCheck,
   ]);
 
-  const pendencias = useMemo(
-    () => Object.values(pendenciasPorAba).flat(),
+  /** Ordem real do processo — a mesma da barra de abas. */
+  const ORDEM_ETAPAS: Aba[] = ['cadastro', 'parcelas', 'alocacao', 'apropria-obra'];
+
+  /**
+   * Tudo que falta, para liberar o Salvar. Continua exigindo o registro inteiro.
+   */
+  const pendenciasTotais = useMemo(
+    () => ORDEM_ETAPAS.flatMap((etapa) => pendenciasPorAba[etapa]),
     [pendenciasPorAba]
   );
-  const consistente = pendencias.length === 0;
+  const consistente = pendenciasTotais.length === 0;
+
+  /**
+   * O que a barra inferior mostra: apenas a PRIMEIRA etapa não resolvida.
+   *
+   * Antes exibia todas as pendências de uma vez, então bastava completar o
+   * cadastro básico para a tela já cobrar a apropriação por centro de custo —
+   * que é a última etapa do processo, não a primeira. Agora cobra uma etapa por
+   * vez, na ordem em que o usuário percorre as abas.
+   */
+  const pendencias = useMemo(() => {
+    const etapa = ORDEM_ETAPAS.find((e) => pendenciasPorAba[e].length > 0);
+    return etapa ? pendenciasPorAba[etapa] : [];
+  }, [pendenciasPorAba]);
 
   /** Leva o usuário direto para a aba que tem a primeira pendência. */
   const primeiraAbaComPendencia = (Object.keys(pendenciasPorAba) as Aba[]).find(
@@ -1072,17 +1096,28 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
         observacaoFinal += `\n[CONTABILIZAR APENAS A BAIXA]`;
       }
 
+      const defaultCcId = centroCustoTituloId || (centroCustos.length > 0 ? centroCustos[0].id : 'cc-999');
       const rateiosFinal =
         rateios.length > 0
           ? rateios.map((r) => ({
               centroCustoId: r.centroCustoId,
-              // O plano de contas escolhido na linha de rateio estava sendo
-              // descartado aqui e nunca chegava ao banco.
               planoContaId: r.planoContaId || planoContaId || undefined,
               percentual: parseFloat(r.percentualStr.replace(',', '.')) || 0,
               valorCentavos: parseCentavos(r.valorReais),
             }))
-          : [{ centroCustoId: 'cc-999', percentual: 100, valorCentavos: valorLiquidoCentavos }];
+          : [
+              {
+                centroCustoId: defaultCcId,
+                planoContaId: planoContaId || undefined,
+                percentual: 100,
+                valorCentavos: valorLiquidoCentavos,
+              },
+            ];
+
+      const parcelasEfetivas =
+        parcelas.length > 0
+          ? parcelas
+          : montarParcelas(valorLiquidoCentavos, qtdParcelas || 1, primeiroVencimento || hoje(), intervaloDias || 30);
 
       const payload = {
         tipo,
@@ -1090,15 +1125,13 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
         pessoaNome: pessoaSel?.nome,
         grupoGestaoId: grupoGestaoId || undefined,
         linhaGestaoId: linhaGestaoId || undefined,
-        // Vazio é aceito: o repositório resolve a conta compatível com o tipo.
         planoContaId: planoContaDominante ?? '',
         numeroDocumento,
-        // O tipo de documento ainda não tem coluna própria em Titulo; vai na série.
         serie: tipoDocumento?.codigo,
         dataEmissao,
         dataCompetencia: dataContabil,
         valorBrutoCentavos: valorLiquidoCentavos,
-        qtdParcelas,
+        qtdParcelas: parcelasEfetivas.length,
         descricao: descBase,
         observacao: observacaoFinal,
         usuario: usuarioLogado,
@@ -1110,11 +1143,11 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
             percentual: parseFloat(r.percentualStr.replace(',', '.')) || 0,
             valorCentavos: parseCentavos(r.valorReais),
           })),
-        parcelas: parcelas.map((p) => ({
+        parcelas: parcelasEfetivas.map((p) => ({
           numero: p.numero,
           dataVencimento: p.dataVencimento,
           valorCentavos: parseCentavos(p.valorReais),
-          observacao: `Parcela ${p.numero}/${qtdParcelas}`,
+          observacao: `Parcela ${p.numero}/${parcelasEfetivas.length}`,
           rateios: rateiosFinal.map((r) => ({
             ...r,
             valorCentavos: Math.round((parseCentavos(p.valorReais) * r.percentual) / 100),
@@ -1796,19 +1829,12 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                   <span>
                     <strong>Nenhum centro de custo disponível.</strong> Todos os botões desta aba
-                    dependem de pelo menos uma obra / centro de custo ativo, por isso nada responde
-                    aqui. Cadastre em <strong>Cadastros → Centro de Custos</strong>. Enquanto isso,
-                    o título é lançado em &quot;Não alocado&quot;.
+                    dependem de pelo menos uma obra / centro de custo ativo. Cadastre em{' '}
+                    <strong>Cadastros → Centro de Custos</strong>. Enquanto isso, o título é lançado em &quot;Não alocado&quot;.
                   </span>
                 </div>
               )}
 
-              {/*
-                Sem linha de rateio não há de onde tirar a conta contábil, e a
-                coluna titulo.plano_conta_id é NOT NULL — o sistema escolheria
-                uma sozinho. Este campo aparece SÓ nesse caso, então não volta a
-                duplicar o "Plano financeiro" da grade.
-              */}
               {rateios.length === 0 && (
                 <div className="mb-3">
                   <ErpRow label="Plano de Contas do título">
@@ -1835,196 +1861,163 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
                   <strong className="font-semibold">{formatCurrency(valorLiquidoCentavos)}</strong>
                 </span>
                 <span>
-                  Obra / centro de custo:{' '}
-                  <strong className="font-semibold">
-                    {centroCustoTituloSel ? centroCustoTituloSel.nome : '—'}
-                  </strong>
+                  Linhas: <strong className="font-semibold">{rateios.length}</strong>
                 </span>
               </div>
 
-              <div className="border border-erp-border">
-                <div className="min-h-[240px] max-h-[380px] overflow-y-auto">
-                  <table className="w-full border-collapse text-[12px] text-erp-label">
-                    <thead className="sticky top-0">
-                      <tr className="bg-erp-head text-[11px] uppercase tracking-wide text-ink-muted">
-                        <th className="text-left font-semibold px-2 py-1.5 border-b border-erp-border">
-                          Centro de custo / Obra
-                        </th>
-                        <th className="text-left font-semibold px-2 py-1.5 border-b border-erp-border">
-                          Plano financeiro
-                        </th>
-                        <th className="text-right font-semibold px-2 py-1.5 border-b border-erp-border w-[160px]">
-                          Valor
-                        </th>
-                        <th className="text-right font-semibold px-2 py-1.5 border-b border-erp-border w-[130px]">
-                          Percentual
-                        </th>
-                        <th className="w-[62px] border-b border-erp-border" />
+              <div className="flex flex-wrap gap-2 mb-3">
+                <button
+                  type="button"
+                  onClick={handleAddRateio}
+                  disabled={centroCustos.length === 0}
+                  className="px-3 py-1.5 border border-erp-rule bg-white text-[12px] font-semibold text-ink-primary hover:bg-black/[0.03] disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  + Adicionar linha
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDividirIgualmente}
+                  disabled={rateios.length === 0}
+                  className="px-3 py-1.5 border border-erp-rule bg-white text-[12px] font-semibold text-ink-primary hover:bg-black/[0.03] disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Dividir igualmente
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRateioPadrao}
+                  disabled={!centroCustoTituloId}
+                  className="px-3 py-1.5 border border-erp-rule bg-white text-[12px] font-semibold text-ink-primary hover:bg-black/[0.03] disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Rateio padrão (100%)
+                </button>
+              </div>
+
+              <div className="overflow-x-auto border border-erp-rule">
+                <table className="w-full text-[12px]">
+                  <thead>
+                    <tr className="bg-black/[0.03] text-erp-label">
+                      <th className="px-2 py-1.5 text-left font-semibold border-b border-erp-rule">
+                        Centro de Custo / Obra
+                      </th>
+                      <th className="px-2 py-1.5 text-left font-semibold border-b border-erp-rule">
+                        Plano Financeiro
+                      </th>
+                      <th className="px-2 py-1.5 text-right font-semibold border-b border-erp-rule w-[110px]">
+                        %
+                      </th>
+                      <th className="px-2 py-1.5 text-right font-semibold border-b border-erp-rule w-[150px]">
+                        Valor apropriado
+                      </th>
+                      <th className="px-2 py-1.5 border-b border-erp-rule w-[48px]" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rateios.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-3 py-6 text-center text-erp-label">
+                          Nenhuma apropriação informada — o título será alocado em “Não alocado”.
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {rateios.length === 0 ? (
-                        <tr>
-                          <td colSpan={5} className="px-2 py-8 text-center text-erp-label/60">
-                            Sem apropriação informada — o título será alocado em “Não alocado”.
+                    ) : (
+                      rateios.map((r, idx) => (
+                        <tr key={idx}>
+                          <td className="px-2 py-1 border-b border-erp-rule">
+                            <select
+                              value={r.centroCustoId}
+                              onChange={(e) => handleRateioChange(idx, 'centroCustoId', e.target.value)}
+                              className={`${erpField} w-full`}
+                            >
+                              <option value="">Selecione...</option>
+                              {centroCustos.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {c.codigo} - {c.nome}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+
+                          <td className="px-2 py-1 border-b border-erp-rule">
+                            <select
+                              value={planoDaLinha(r)}
+                              onChange={(e) => handleRateioChange(idx, 'planoContaId', e.target.value)}
+                              className={`${erpField} w-full`}
+                            >
+                              <option value="">Padrão do título</option>
+                              {planoContasDisponiveis.map((p) => (
+                                <option key={p.id} value={p.id}>
+                                  {p.codigo} - {p.nome}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+
+                          <td className="px-2 py-1 border-b border-erp-rule text-right">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={r.percentualStr}
+                              onChange={(e) => handleRateioPercentual(idx, e.target.value)}
+                              className={`${erpField} w-full text-right`}
+                            />
+                          </td>
+
+                          <td className="px-2 py-1 border-b border-erp-rule text-right font-semibold tabular-nums">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={r.valorReais}
+                              onChange={(e) => handleRateioValor(idx, e.target.value)}
+                              onBlur={(e) => handleRateioValor(idx, normalizeMoney(e.target.value))}
+                              className={`${erpField} w-full text-right font-semibold`}
+                            />
+                          </td>
+
+                          <td className="px-2 py-1 border-b border-erp-rule text-center">
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveRateio(idx)}
+                              title="Remover linha"
+                              className="text-erp-icon hover:text-erp-req"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
                           </td>
                         </tr>
-                      ) : (
-                        rateios.map((r, idx) => {
-                          const cc = centroCustos.find((c) => c.id === r.centroCustoId);
-                          const pc = planoContas.find((p) => p.id === planoDaLinha(r));
-                          const disp = disponibilidades[idx];
-                          const emEdicao = linhaRateioEditando === idx;
+                      ))
+                    )}
+                  </tbody>
 
-                          const fundo = emEdicao
-                            ? 'bg-erp-disabled'
-                            : idx % 2
-                            ? 'bg-erp-zebra'
-                            : 'bg-white';
-
-                          return (
-                            <React.Fragment key={idx}>
-                              <tr className={fundo}>
-                                <td className="px-2 py-1 border-b border-erp-rule">
-                                  {emEdicao ? (
-                                    <div className="flex items-center gap-1.5">
-                                      <ErpLookup
-                                        codigo={cc?.codigo || ''}
-                                        descricao={cc?.nome || ''}
-                                        options={lookupConfig.centrocusto.items}
-                                        onSelect={(i) => {
-                                          const copy = [...rateios];
-                                          copy[idx] = { ...copy[idx], centroCustoId: i.id };
-                                          setRateios(copy);
-                                        }}
-                                        onOpen={() => {
-                                          setRateioLookupIndex(idx);
-                                          setLookupAberto('centrocusto');
-                                        }}
-                                      />
-                                    </div>
-                                  ) : (
-                                    <span>{cc ? `${cc.codigo} - ${cc.nome}` : '—'}</span>
-                                  )}
-                                </td>
-
-                                <td className="px-2 py-1 border-b border-erp-rule">
-                                  {emEdicao ? (
-                                    <div className="flex items-center gap-1.5">
-                                      <ErpLookup
-                                        codigo={pc?.codigo || ''}
-                                        descricao={pc?.nome || ''}
-                                        options={lookupConfig.planofinanceiro.items}
-                                        onSelect={(i) => {
-                                          const copy = [...rateios];
-                                          copy[idx] = { ...copy[idx], planoContaId: i.id };
-                                          setRateios(copy);
-                                        }}
-                                        onOpen={() => {
-                                          setRateioLookupIndex(idx);
-                                          setLookupAberto('planofinanceiro');
-                                        }}
-                                      />
-                                    </div>
-                                  ) : (
-                                    <span className="text-erp-icon">
-                                      {pc ? `${pc.codigo} - ${pc.nome}` : '—'}
-                                    </span>
-                                  )}
-                                </td>
-
-                                <td className="px-2 py-1 border-b border-erp-rule text-right">
-                                  {emEdicao ? (
-                                    <div className="flex justify-end">
-                                      <input
-                                        type="text"
-                                        inputMode="decimal"
-                                        value={r.valorReais}
-                                        onChange={(e) => handleRateioValor(idx, e.target.value)}
-                                        onBlur={(e) => handleRateioValor(idx, normalizeMoney(e.target.value))}
-                                        className={`${erpField} w-[140px] text-right`}
-                                      />
-                                    </div>
-                                  ) : (
-                                    <span className="font-mono">{r.valorReais}</span>
-                                  )}
-                                </td>
-
-                                <td className="px-2 py-1 border-b border-erp-rule text-right">
-                                  {emEdicao ? (
-                                    <div className="flex justify-end">
-                                      <input
-                                        type="text"
-                                        inputMode="decimal"
-                                        value={r.percentualStr}
-                                        onChange={(e) => handleRateioPercentual(idx, e.target.value)}
-                                        className={`${erpField} w-[110px] text-right`}
-                                      />
-                                    </div>
-                                  ) : (
-                                    <span className="font-mono">{r.percentualStr}</span>
-                                  )}
-                                </td>
-
-                                <td className="px-2 py-1 border-b border-erp-rule">
-                                  <div className="flex items-center justify-center gap-2">
-                                    <button
-                                      type="button"
-                                      onClick={() => setLinhaRateioEditando(emEdicao ? null : idx)}
-                                      aria-label={emEdicao ? 'Concluir edição' : 'Editar apropriação'}
-                                      title={emEdicao ? 'Concluir edição' : 'Editar apropriação'}
-                                      className="text-erp-icon hover:text-erp-accent"
-                                    >
-                                      {emEdicao ? (
-                                        <Check className="w-3.5 h-3.5" />
-                                      ) : (
-                                        <Pencil className="w-3.5 h-3.5" />
-                                      )}
-                                    </button>
-
-                                    <button
-                                      type="button"
-                                      onClick={() => handleRemoveRateio(idx)}
-                                      aria-label="Remover apropriação"
-                                      title="Remover apropriação"
-                                      className="text-erp-icon hover:text-erp-req"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            </React.Fragment>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-2 bg-surface-muted border-t border-erp-border px-2 py-1.5">
-                  <span className="text-[11px] text-erp-label">
-                    Quantidade de registros: {rateios.length}
-                  </span>
-
-                  <div className="flex items-center gap-1.5">
-                    <ErpGridButton
-                      onClick={handleRateioPadrao}
-                      disabled={!centroCustoTituloId}
-                    >
-                      Rateio padrão
-                    </ErpGridButton>
-
-                    <ErpGridButton onClick={handleDividirIgualmente} disabled={rateios.length === 0}>
-                      Dividir igualmente
-                    </ErpGridButton>
-
-                    <ErpGridButton onClick={handleAddRateio} disabled={centroCustos.length === 0}>
-                      Adicionar
-                    </ErpGridButton>
-                  </div>
-                </div>
+                  {rateios.length > 0 && (
+                    <tfoot>
+                      <tr className="bg-black/[0.03] font-semibold">
+                        <td colSpan={2} className="px-2 py-1.5 text-right border-t border-erp-rule">
+                          Total
+                        </td>
+                        <td
+                          className={`px-2 py-1.5 text-right border-t border-erp-rule tabular-nums ${
+                            isRateioValido ? 'text-emerald-700' : 'text-erp-req'
+                          }`}
+                        >
+                          {somaPercentualRateio.toFixed(2).replace('.', ',')}%
+                        </td>
+                        <td className="px-2 py-1.5 text-right border-t border-erp-rule tabular-nums">
+                          {formatCentavos(
+                            rateios.reduce((acc, r) => acc + parseCentavos(r.valorReais), 0)
+                          )}
+                        </td>
+                        <td className="border-t border-erp-rule" />
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
               </div>
+
+              {!isRateioValido && (
+                <p className="mt-2 flex items-center gap-1.5 text-[12px] text-erp-req">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  A apropriação por centro de custo deve somar 100,00%.
+                </p>
+              )}
             </ErpSection>
           )}
 
@@ -2099,7 +2092,11 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
               ) : (
                 <span className="text-erp-status inline-flex items-center gap-1.5 flex-wrap">
                   <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                  {pendencias.length} pendência(s): {pendencias[0]}
+                  {/* Mostra só a etapa corrente, mas sem esconder que há mais
+                      pelo caminho — senão o usuário salvaria achando que acabou. */}
+                  {/* A contagem é do TOTAL, não só da etapa exibida: mostrar uma
+                      mensagem sem número fazia parecer que restava um bloqueio só. */}
+                  {pendenciasTotais.length} pendência(s): {pendencias[0]}
                   {primeiraAbaComPendencia && primeiraAbaComPendencia !== aba && (
                     <button
                       type="button"

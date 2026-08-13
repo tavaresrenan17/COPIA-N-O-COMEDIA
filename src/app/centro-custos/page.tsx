@@ -309,7 +309,9 @@ export default function CentroCustosPage() {
                       // O código depende do ramo: sem regenerar, um código de raiz ia parar
                       // num filho e o número voltava a ser oferecido — violando o UNIQUE,
                       // sem conserto pela tela, já que o campo é somente-leitura.
-                      if (!editingId) setFormCodigo(proximoCodigo(centrosTodos, novoPai));
+                      // Vale também na edição: o código pertence ao ramo. Mantê-lo ao mover deixava
+                      // um código de raiz preso num filho e o número voltava a ser oferecido.
+                      setFormCodigo(proximoCodigo(centrosTodos.filter((c) => c.id !== editingId), novoPai));
                     }}
                     className="w-full bg-surface-muted border border-black/10 rounded-xl px-3 py-2 text-xs text-ink-primary focus:outline-none focus:ring-2 focus:ring-brand"
                   >

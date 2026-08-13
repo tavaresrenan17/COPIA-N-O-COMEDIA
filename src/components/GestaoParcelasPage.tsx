@@ -38,6 +38,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { Modal } from './ui/Modal';
 import { useToast } from './ui/ToastProvider';
+import { NATUREZAS_POR_TIPO } from '@/data/supabase/supabase.repository';
 
 interface GestaoParcelasPageProps {
   tipo: TipoTitulo; // 'P' = Pagar, 'R' = Receber
@@ -133,7 +134,10 @@ export function GestaoParcelasPage({ tipo }: GestaoParcelasPageProps) {
         apenasFornecedores: !isRecebimento
       }),
       erpRepository.getCentrosCusto({ apenasAtivos: true }),
-      erpRepository.getPlanoContasFolhas(isRecebimento ? 'receita' : undefined)
+      // Antes: sem filtro nenhum para Contas a Pagar, então o combo listava contas
+      // de receita que nunca aparecem num título 'P'. A regra já existe declarada
+      // em NATUREZAS_POR_TIPO — evita uma terceira cópia da mesma condição.
+      erpRepository.getPlanoContasFolhas(NATUREZAS_POR_TIPO[tipo])
     ]);
     setPessoas(pList);
     setCentrosCusto(ccList);

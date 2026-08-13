@@ -64,7 +64,7 @@ function toUuidOrNull(val?: string | null): string | null {
  * 'R' (receber) só pode usar conta de receita; 'P' (pagar) nunca pode.
  * A mesma regra é garantida no banco pelo trigger trg_valida_natureza_titulo.
  */
-const NATUREZAS_POR_TIPO: Record<TipoTitulo, NaturezaPlanoConta[]> = {
+export const NATUREZAS_POR_TIPO: Record<TipoTitulo, NaturezaPlanoConta[]> = {
   R: ['receita'],
   P: ['custo', 'despesa', 'investimento']
 };
@@ -361,12 +361,15 @@ export class SupabaseErpRepository implements IErpRepository {
     });
   }
 
-  async getPlanoContasFolhas(natureza?: string): Promise<PlanoConta[]> {
+  async getPlanoContasFolhas(natureza?: string | string[]): Promise<PlanoConta[]> {
     if (!this.client) return this.fallbackMock.getPlanoContasFolhas(natureza);
     const client = this.client;
     return this.cache.obter(`plano_conta:folhas:${natureza ?? ''}`, async () => {
     let query = client.from('plano_conta').select('*').eq('aceita_lancamento', true).eq('ativo', true);
-    if (natureza) query = query.eq('natureza', natureza);
+    // Aceita uma natureza ou várias: contas a pagar precisam de custo,
+    // despesa e investimento ao mesmo tempo.
+    if (Array.isArray(natureza)) query = query.in('natureza', natureza);
+    else if (natureza) query = query.eq('natureza', natureza);
     const { data } = await query.order('codigo');
     if (!data) return this.fallbackMock.getPlanoContasFolhas(natureza);
 

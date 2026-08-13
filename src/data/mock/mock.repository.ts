@@ -200,9 +200,11 @@ export class MockErpRepository implements IErpRepository {
     if (filtro?.apenasAtivos !== false) result = result.filter(pc => pc.ativo);
     return result;
   }
-  async getPlanoContasFolhas(natureza?: string): Promise<PlanoConta[]> {
+  async getPlanoContasFolhas(natureza?: string | string[]): Promise<PlanoConta[]> {
     let list = mockPlanoContas.filter(pc => pc.ativo && pc.aceitaLancamento);
-    if (natureza) list = list.filter(pc => pc.natureza === natureza);
+    const naturezas = natureza ? (Array.isArray(natureza) ? natureza : [natureza]) : null;
+
+    if (naturezas) list = list.filter(pc => naturezas.includes(pc.natureza));
     return list;
   }
   async getPlanoContaById(id: string): Promise<PlanoConta | null> {

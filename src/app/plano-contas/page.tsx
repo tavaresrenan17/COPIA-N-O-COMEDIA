@@ -84,7 +84,7 @@ export default function PlanoContasPage() {
      * Nível vem do PAI, não da quantidade de pontos no código — foi assim que
      * "3.1.01" acabou gravado no nível 2, pendurado direto no nó de nível 1.
      */
-    const pai = formParentId ? contasAtivas.find((p) => p.id === formParentId) : null;
+    const pai = formParentId ? contasTodas.find((p) => p.id === formParentId) : null;
     if (formParentId && !pai) {
       alert('Não foi possível identificar a conta pai. Recarregue a tela e tente de novo.');
       return;
@@ -252,7 +252,9 @@ export default function PlanoContasPage() {
                     onChange={(e) => {
                       setFormParentId(e.target.value);
                       const novoPai = contasTodas.find((c) => c.id === e.target.value) || null;
-                      if (!editingId) setFormCodigo(proximoCodigo(contasTodas, novoPai, { raiz: 1, filho: 2 }));
+                      setFormCodigo(
+                        proximoCodigo(contasTodas.filter((c) => c.id !== editingId), novoPai, { raiz: 1, filho: 2 })
+                      );
                       const parent = contasAtivas.find((p) => p.id === e.target.value);
                       if (parent) {
                         setFormNatureza(parent.natureza);
@@ -261,11 +263,19 @@ export default function PlanoContasPage() {
                     className="w-full bg-surface-muted border border-black/10 rounded-xl px-3 py-2 text-xs text-ink-primary focus:outline-none focus:ring-2 focus:ring-brand"
                   >
                     <option value="">Nenhuma (Nó Raiz / Nível 1)</option>
-                    {contasAtivas
+                    {contasTodas
                       // Agrupadores, exceto o próprio nó e sua subárvore: uma
                       // conta que vira pai de si mesma (ou de um descendente)
                       // some da árvore junto com o ramo inteiro.
-                      .filter((p) => !p.aceitaLancamento && p.id !== editingId && !subarvoreEditada.has(p.id))
+                      .filter(
+                        (p) =>
+                          !p.aceitaLancamento &&
+                          // O pai já selecionado permanece na lista mesmo inativo:
+                          // sumir dele mostrava "Nenhuma (Nó Raiz)" com o vínculo antigo gravado.
+                          (p.ativo || p.id === formParentId) &&
+                          p.id !== editingId &&
+                          !subarvoreEditada.has(p.id)
+                      )
                       .map((p) => (
                         <option key={p.id} value={p.id}>
                           {p.codigo} - {p.nome}
