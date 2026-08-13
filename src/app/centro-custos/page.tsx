@@ -9,7 +9,7 @@ import { proximoCodigo } from '@/lib/codigos';
 import { descendentesDe, recalcularNiveis } from '@/lib/arvore';
 
 export default function CentroCustosPage() {
-  const [centroCustos, setCentroCustos] = useState<CentroCusto[]>([]);
+  const [centrosAtivos, setCentrosAtivos] = useState<CentroCusto[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [apenasAtivos, setApenasAtivos] = useState(true);
@@ -27,7 +27,7 @@ export default function CentroCustosPage() {
   const [formDataInicio, setFormDataInicio] = useState('');
   const [formDataFim, setFormDataFim] = useState('');
   /** Lista sem filtro — usada no seletor de pai e no cálculo de nível. */
-  const [todosCentroCustos, setTodosCentroCustos] = useState<CentroCusto[]>([]);
+  const [centrosTodos, setCentrosTodos] = useState<CentroCusto[]>([]);
 
   useEffect(() => {
     loadData();
@@ -41,8 +41,8 @@ export default function CentroCustosPage() {
       erpRepository.getCentrosCusto({ apenasAtivos }),
       erpRepository.getCentrosCusto({ apenasAtivos: false }),
     ]);
-    setCentroCustos(ccList);
-    setTodosCentroCustos(todos);
+    setCentrosAtivos(ccList);
+    setCentrosTodos(todos);
     setLoading(false);
   }
 
@@ -51,12 +51,12 @@ export default function CentroCustosPage() {
     if (parent) {
       setFormParentId(parent.id);
       setFormTipo((parent as any).tipo || 'obra');
-      setFormCodigo(proximoCodigo(todosCentroCustos, parent));
+      setFormCodigo(proximoCodigo(centrosTodos, parent));
     } else {
       setFormParentId('');
-      // Antes: `CC-${centroCustos.length + 1}` — contar linhas fazia o número
+      // Antes: `CC-${centrosAtivos.length + 1}` — contar linhas fazia o número
       // retroceder após uma exclusão e colidir com o código único.
-      setFormCodigo(proximoCodigo(todosCentroCustos));
+      setFormCodigo(proximoCodigo(centrosTodos));
       setFormTipo('obra');
     }
     setFormNome('');
@@ -67,7 +67,7 @@ export default function CentroCustosPage() {
   };
 
   const handleOpenEditModal = (node: TreeNode) => {
-    const item = centroCustos.find((cc) => cc.id === node.id);
+    const item = centrosAtivos.find((cc) => cc.id === node.id);
     if (!item) return;
     setEditingId(item.id);
     setFormCodigo(item.codigo);
@@ -82,7 +82,7 @@ export default function CentroCustosPage() {
 
   /** Descendentes do nó em edição — não podem ser oferecidos como pai. */
   const subarvoreEditada = editingId
-    ? descendentesDe(todosCentroCustos, editingId)
+    ? descendentesDe(centrosTodos, editingId)
     : new Set<string>();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -95,7 +95,7 @@ export default function CentroCustosPage() {
      * gerava nível 1 com parent_id preenchido — filho declarado como raiz.
      * É o mesmo defeito que deixou o plano de contas com "3.1.01" no nível 2.
      */
-    const pai = formParentId ? todosCentroCustos.find((cc) => cc.id === formParentId) : null;
+    const pai = formParentId ? centrosTodos.find((cc) => cc.id === formParentId) : null;
     if (formParentId && !pai) {
       // Sem o pai em mãos o nível sairia 1 com parent_id preenchido — justamente
       // o "filho declarado como raiz" que esta correção existe para evitar.
@@ -129,7 +129,7 @@ export default function CentroCustosPage() {
 
     // Mover um nó muda a profundidade de tudo abaixo dele.
     if (editingId) {
-      for (const ajuste of recalcularNiveis(todosCentroCustos, editingId, nivel)) {
+      for (const ajuste of recalcularNiveis(centrosTodos, editingId, nivel)) {
         try {
           await erpRepository.updateCentroCusto(ajuste.id, { nivel: ajuste.nivel });
         } catch {
@@ -146,8 +146,10 @@ export default function CentroCustosPage() {
      */
     // O CC-999 "Não alocado" é o destino padrão do sistema: rebaixá-lo a
     // agrupador tiraria o único lugar onde títulos sem obra podem cair.
-    const CC_NAO_ALOCADO = '99999999-9999-9999-9999-999999999999';
-    if (pai && pai.aceitaLancamento && pai.id !== CC_NAO_ALOCADO) {
+    // Identificado pelo código, que é igual nos dois repositórios — o id muda
+    // (UUID no Supabase, "cc-999" no mock) e comparar por id deixava o mock passar.
+    const ehNaoAlocado = (pai?.codigo || '').replace(/\D/g, '') === '999';
+    if (pai && pai.aceitaLancamento && !ehNaoAlocado) {
       try {
         await erpRepository.updateCentroCusto(pai.id, { aceitaLancamento: false });
       } catch {
@@ -181,7 +183,7 @@ export default function CentroCustosPage() {
     }
   };
 
-  const treeNodes: TreeNode[] = centroCustos
+  const treeNodes: TreeNode[] = centrosAtivos
     .filter((cc) => {
       if (!searchTerm) return true;
       return cc.nome.toLowerCase().includes(searchTerm.toLowerCase()) || cc.codigo.includes(searchTerm);
@@ -301,15 +303,30 @@ export default function CentroCustosPage() {
                   <label className="block text-xs font-semibold text-ink-muted mb-1">Centro de Custo Pai</label>
                   <select
                     value={formParentId}
-                    onChange={(e) => setFormParentId(e.target.value)}
+                    onChange={(e) => {
+                      const novoPai = centrosTodos.find((c) => c.id === e.target.value) || null;
+                      setFormParentId(e.target.value);
+                      // O código depende do ramo: sem regenerar, um código de raiz ia parar
+                      // num filho e o número voltava a ser oferecido — violando o UNIQUE,
+                      // sem conserto pela tela, já que o campo é somente-leitura.
+                      if (!editingId) setFormCodigo(proximoCodigo(centrosTodos, novoPai));
+                    }}
                     className="w-full bg-surface-muted border border-black/10 rounded-xl px-3 py-2 text-xs text-ink-primary focus:outline-none focus:ring-2 focus:ring-brand"
                   >
                     <option value="">Nenhum (Nó Raiz)</option>
-                    {todosCentroCustos
+                    {centrosTodos
                       // Fora: o próprio nó, sua subárvore (viraria ciclo e o ramo
                       // sumiria da tela) e os inativos (o filho apareceria solto
                       // na raiz, com indentação errada).
-                      .filter((cc) => cc.ativo && cc.id !== editingId && !subarvoreEditada.has(cc.id))
+                      .filter(
+                        (cc) =>
+                          // O pai já selecionado continua na lista mesmo inativo:
+                          // sumir dele fazia o select exibir "Nenhum (Nó Raiz)"
+                          // enquanto o vínculo antigo seguia gravado.
+                          (cc.ativo || cc.id === formParentId) &&
+                          cc.id !== editingId &&
+                          !subarvoreEditada.has(cc.id)
+                      )
                       .map((cc) => (
                         <option key={cc.id} value={cc.id}>
                           {cc.codigo} - {cc.nome}

@@ -9,7 +9,7 @@ import { proximoCodigo } from '@/lib/codigos';
 import { descendentesDe, recalcularNiveis } from '@/lib/arvore';
 
 export default function PlanoContasPage() {
-  const [planoContas, setPlanoContas] = useState<PlanoConta[]>([]);
+  const [contasAtivas, setContasAtivas] = useState<PlanoConta[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [apenasAtivos, setApenasAtivos] = useState(true);
@@ -21,7 +21,7 @@ export default function PlanoContasPage() {
   // Form State
   const [formCodigo, setFormCodigo] = useState('');
   /** Lista sem filtro — base da geração de código. */
-  const [todosPlanoContas, setTodosPlanoContas] = useState<PlanoConta[]>([]);
+  const [contasTodas, setContasTodas] = useState<PlanoConta[]>([]);
   const [formNome, setFormNome] = useState('');
   const [formParentId, setFormParentId] = useState<string>('');
   const [formNatureza, setFormNatureza] = useState<NaturezaPlanoConta>('despesa');
@@ -39,8 +39,8 @@ export default function PlanoContasPage() {
       erpRepository.getPlanoContas({ apenasAtivos }),
       erpRepository.getPlanoContas({ apenasAtivos: false }),
     ]);
-    setTodosPlanoContas(todas);
-    setPlanoContas(data);
+    setContasTodas(todas);
+    setContasAtivas(data);
     setLoading(false);
   }
 
@@ -49,10 +49,10 @@ export default function PlanoContasPage() {
     if (parent) {
       setFormParentId(parent.id);
       setFormNatureza((parent as any).natureza || 'despesa');
-      setFormCodigo(proximoCodigo(todosPlanoContas, parent, { raiz: 1, filho: 2 }));
+      setFormCodigo(proximoCodigo(contasTodas, parent, { raiz: 1, filho: 2 }));
     } else {
       setFormParentId('');
-      setFormCodigo(proximoCodigo(todosPlanoContas, null, { raiz: 1, filho: 2 }));
+      setFormCodigo(proximoCodigo(contasTodas, null, { raiz: 1, filho: 2 }));
       setFormNatureza('despesa');
     }
     setFormNome('');
@@ -61,7 +61,7 @@ export default function PlanoContasPage() {
   };
 
   const handleOpenEditModal = (node: TreeNode) => {
-    const item = planoContas.find((p) => p.id === node.id);
+    const item = contasAtivas.find((p) => p.id === node.id);
     if (!item) return;
     setEditingId(item.id);
     setFormCodigo(item.codigo);
@@ -74,7 +74,7 @@ export default function PlanoContasPage() {
 
   /** Descendentes da conta em edição — não podem ser oferecidos como pai. */
   const subarvoreEditada = editingId
-    ? descendentesDe(todosPlanoContas, editingId)
+    ? descendentesDe(contasTodas, editingId)
     : new Set<string>();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -84,7 +84,7 @@ export default function PlanoContasPage() {
      * Nível vem do PAI, não da quantidade de pontos no código — foi assim que
      * "3.1.01" acabou gravado no nível 2, pendurado direto no nó de nível 1.
      */
-    const pai = formParentId ? planoContas.find((p) => p.id === formParentId) : null;
+    const pai = formParentId ? contasAtivas.find((p) => p.id === formParentId) : null;
     if (formParentId && !pai) {
       alert('Não foi possível identificar a conta pai. Recarregue a tela e tente de novo.');
       return;
@@ -114,7 +114,7 @@ export default function PlanoContasPage() {
 
     // Mover uma conta muda a profundidade de todo o ramo abaixo dela.
     if (editingId) {
-      for (const ajuste of recalcularNiveis(todosPlanoContas, editingId, nivel)) {
+      for (const ajuste of recalcularNiveis(contasTodas, editingId, nivel)) {
         try {
           await erpRepository.updatePlanoConta(ajuste.id, { nivel: ajuste.nivel });
         } catch {
@@ -149,7 +149,7 @@ export default function PlanoContasPage() {
   };
 
   // Mapeia para nós da TreeView
-  const treeNodes: TreeNode[] = planoContas
+  const treeNodes: TreeNode[] = contasAtivas
     .filter((pc) => {
       if (!searchTerm) return true;
       return pc.nome.toLowerCase().includes(searchTerm.toLowerCase()) || pc.codigo.includes(searchTerm);
@@ -251,7 +251,9 @@ export default function PlanoContasPage() {
                     value={formParentId}
                     onChange={(e) => {
                       setFormParentId(e.target.value);
-                      const parent = planoContas.find((p) => p.id === e.target.value);
+                      const novoPai = contasTodas.find((c) => c.id === e.target.value) || null;
+                      if (!editingId) setFormCodigo(proximoCodigo(contasTodas, novoPai, { raiz: 1, filho: 2 }));
+                      const parent = contasAtivas.find((p) => p.id === e.target.value);
                       if (parent) {
                         setFormNatureza(parent.natureza);
                       }
@@ -259,7 +261,7 @@ export default function PlanoContasPage() {
                     className="w-full bg-surface-muted border border-black/10 rounded-xl px-3 py-2 text-xs text-ink-primary focus:outline-none focus:ring-2 focus:ring-brand"
                   >
                     <option value="">Nenhuma (Nó Raiz / Nível 1)</option>
-                    {planoContas
+                    {contasAtivas
                       // Agrupadores, exceto o próprio nó e sua subárvore: uma
                       // conta que vira pai de si mesma (ou de um descendente)
                       // some da árvore junto com o ramo inteiro.
