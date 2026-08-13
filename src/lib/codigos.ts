@@ -49,18 +49,20 @@ export function proximoCodigo(
    * contando, para a numeração seguir de onde parou em vez de recomeçar do 1 e
    * conviver com dois formatos.
    */
-  const RESERVADOS = new Set(['CC-999']);
-  const somenteNumerico = (codigo: string) => !RESERVADOS.has(codigo);
+  // Duas grafias do mesmo sentinela: o Supabase usa "CC-999", o repositório
+  // mock usa "999". Só uma delas na lista deixava o outro caminho gerar "1000".
+  const RESERVADOS = new Set(['CC-999', '999']);
+  const contaNaSequencia = (codigo: string) => !RESERVADOS.has(codigo);
 
   if (!parent) {
     const maior = itens
-      .filter((i) => !i.parentId && somenteNumerico(i.codigo))
+      .filter((i) => !i.parentId && contaNaSequencia(i.codigo))
       .reduce((m, i) => Math.max(m, ultimoSegmento(i.codigo.split('.')[0])), 0);
     return String(maior + 1).padStart(padRaiz, '0');
   }
 
   // Filho: continua a numeração dentro do ramo do pai
-  const irmaos = itens.filter((i) => i.parentId === parent.id && somenteNumerico(i.codigo));
+  const irmaos = itens.filter((i) => i.parentId === parent.id && contaNaSequencia(i.codigo));
   const maior = irmaos.reduce((m, i) => Math.max(m, ultimoSegmento(i.codigo)), 0);
 
   // O irmão manda no formato: sem isto um novo nível 2 do plano de contas sairia

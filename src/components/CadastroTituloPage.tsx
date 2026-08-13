@@ -473,7 +473,11 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
     if (!pc) return;
 
     const compativel = isPagar ? pc.natureza !== 'receita' : pc.natureza === 'receita';
-    if (!compativel) {
+    if (compativel) {
+      // Sem este ramo o aviso ficava na tela para sempre, mesmo depois de o
+      // usuário escolher a conta certa.
+      setPlanoContaIncompativel(null);
+    } else {
       // O aviso visual saiu junto com a seção de classificação; sem ele, limpar
       // em silêncio faria o título ser reclassificado sozinho no salvamento.
       // A conta agora vem das linhas de rateio, então só avisamos.
