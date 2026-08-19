@@ -1523,7 +1523,6 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
                       value={primeiroVencimento}
                       onChange={setPrimeiroVencimento}
                       required
-                      widthClass="w-full"
                       hasError={tentouAvancar && Boolean(errosCadastro.primeiroVencimento)}
                     />
                   </ErpRow>
