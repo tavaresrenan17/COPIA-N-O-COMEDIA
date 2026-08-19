@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { ToastProvider, useToast } from './ToastProvider';
 import { ConfirmProvider } from './ConfirmProvider';
 import { AuthProvider } from '@/context/AuthContext';
+import { SidebarProvider } from '@/context/SidebarContext';
 
 const STORAGE_KEY = 'melhor-gestao.erp.state';
 
@@ -35,12 +36,14 @@ function MultiTabWatcher() {
 export function AppProviders({ children }: { children: React.ReactNode }) {
   return (
     <AuthProvider>
-      <ToastProvider>
-        <ConfirmProvider>
-          <MultiTabWatcher />
-          {children}
-        </ConfirmProvider>
-      </ToastProvider>
+      <SidebarProvider>
+        <ToastProvider>
+          <ConfirmProvider>
+            <MultiTabWatcher />
+            {children}
+          </ConfirmProvider>
+        </ToastProvider>
+      </SidebarProvider>
     </AuthProvider>
   );
 }

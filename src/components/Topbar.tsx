@@ -2,14 +2,27 @@
 
 import { useEffect } from 'react';
 import Link from 'next/link';
-import { Building2, LogOut, ShieldCheck } from 'lucide-react';
+import { Building2, LogOut, ShieldCheck, PanelLeft } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import { DEPARTMENTS } from '@/data/departments';
 import { useAuth } from '@/context/AuthContext';
+import { useSidebar } from '@/context/SidebarContext';
 
 export function Topbar() {
   const pathname = usePathname();
   const { user, logout } = useAuth();
+  const { isCollapsed, toggleSidebar } = useSidebar();
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+        e.preventDefault();
+        toggleSidebar();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [toggleSidebar]);
 
   const activeDepartmentId = Object.keys(DEPARTMENTS).find((deptKey) => {
     const dept = DEPARTMENTS[deptKey];
@@ -22,8 +35,6 @@ export function Topbar() {
   const activeDepartment = activeDepartmentId ? DEPARTMENTS[activeDepartmentId] : undefined;
 
   const titleMap: Record<string, string> = {
-    // A Home já tem seu próprio cabeçalho com saudação e data; repetir um
-    // título na topbar era redundante.
     '/': '',
     '/departamentos': 'Hub de Departamentos',
     '/cadastros': 'Bases de Cadastros',
@@ -37,7 +48,7 @@ export function Topbar() {
     '/clientes': 'Cadastro de Clientes',
     '/fornecedores': 'Cadastro de Fornecedores',
     '/centro-custos': 'Centro de Custos',
-    '/plano-contas': 'Plano de Contas',
+    '/plano-contas': 'Plano Financeiro',
     '/contas-bancarias': 'Contas Bancárias',
     '/usuarios': 'Gestão de Usuários e Permissões',
     '/departamentos/financeiro': 'Visão Geral do Financeiro',
@@ -91,8 +102,17 @@ export function Topbar() {
   return (
     // shrink-0: no app shell (body h-screen) o <main> flex-1 comprimiria a topbar
     <header className="h-20 shrink-0 px-8 flex items-center justify-between bg-transparent select-none">
-      {/* Title & Department Breadcrumb Badge */}
+      {/* Title & Department Breadcrumb Badge + Toggle Button */}
       <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={toggleSidebar}
+          title={isCollapsed ? 'Expandir menu lateral (Ctrl+B)' : 'Recolher menu lateral (Ctrl+B)'}
+          className="p-2 rounded-xl text-slate-500 hover:text-slate-900 bg-white hover:bg-slate-50 border border-slate-200/80 shadow-2xs transition-all active:scale-95 flex items-center justify-center shrink-0"
+        >
+          <PanelLeft className={`w-5 h-5 transition-transform duration-200 ${isCollapsed ? 'rotate-180 text-brand font-bold' : ''}`} />
+        </button>
+
         {activeDepartment && (
           <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white shadow-sm border border-slate-200 text-xs font-semibold text-slate-700">
             <span className={`w-2 h-2 rounded-full ${activeDepartment.themeColor}`} />

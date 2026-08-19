@@ -171,7 +171,7 @@ export default function PlanoContasPage() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-surface rounded-2xl p-6 shadow-soft border border-black/[0.03]">
         <div>
-          <h1 className="text-xl font-bold text-ink-primary tracking-tight">Plano de Contas (DRE / Regime Contábil)</h1>
+          <h1 className="text-xl font-bold text-ink-primary tracking-tight">Plano Financeiro (DRE / Regime Contábil)</h1>
           <p className="text-xs text-ink-muted mt-1">
             Estrutura hierárquica em árvore de Receitas, Custos, Despesas e Investimentos com trava de lançamento em nós-pai.
           </p>
@@ -209,10 +209,10 @@ export default function PlanoContasPage() {
         </label>
       </div>
 
-      {/* Árvore de Plano de Contas */}
+      {/* Árvore do Plano Financeiro */}
       <div className="bg-surface rounded-2xl p-5 shadow-soft border border-black/[0.03]">
         {loading ? (
-          <div className="p-12 text-center text-ink-muted font-medium">Carregando plano de contas...</div>
+          <div className="p-12 text-center text-ink-muted font-medium">Carregando plano financeiro...</div>
         ) : treeNodes.length === 0 ? (
           <div className="p-12 text-center text-ink-muted">Nenhuma conta contábil encontrada.</div>
         ) : (

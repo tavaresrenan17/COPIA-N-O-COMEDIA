@@ -448,7 +448,7 @@ export function OrcamentoSpreadsheetEditor({
         <table className="w-full text-left text-xs border-collapse">
           <thead>
             <tr className="bg-surface-muted border-b border-black/10 text-[11px] font-bold text-ink-muted uppercase sticky top-0 z-10">
-              <th className="p-2.5 min-w-[200px]">Plano de Contas (Nível 2)</th>
+              <th className="p-2.5 min-w-[200px]">Plano Financeiro (Nível 2)</th>
               <th className="p-2.5 min-w-[160px]">Descrição do Item</th>
               <th className="p-2.5 w-20 text-right">Qtd</th>
               <th className="p-2.5 w-16 text-center">Unid</th>

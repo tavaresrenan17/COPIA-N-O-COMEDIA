@@ -21,9 +21,14 @@ interface TreeViewProps {
   onAddChild?: (parent: TreeNode) => void;
   onEdit?: (node: TreeNode) => void;
   onDelete?: (id: string) => void;
+  /**
+   * Nome que cada tela dá ao item de baixo (ex.: "Linha de Centro de Custo").
+   * A árvore é compartilhada, então o padrão continua genérico.
+   */
+  rotuloFilho?: string;
 }
 
-export function TreeView({ nodes, onAddChild, onEdit, onDelete }: TreeViewProps) {
+export function TreeView({ nodes, onAddChild, onEdit, onDelete, rotuloFilho = 'sub-item' }: TreeViewProps) {
   // Converte a lista plana em estrutura de árvore caso ainda não esteja aninhada
   const buildTree = (flatList: TreeNode[]): TreeNode[] => {
     const map = new Map<string, TreeNode>();
@@ -56,6 +61,7 @@ export function TreeView({ nodes, onAddChild, onEdit, onDelete }: TreeViewProps)
           onAddChild={onAddChild}
           onEdit={onEdit}
           onDelete={onDelete}
+          rotuloFilho={rotuloFilho}
         />
       ))}
     </div>
@@ -67,11 +73,13 @@ function TreeNodeItem({
   onAddChild,
   onEdit,
   onDelete,
+  rotuloFilho,
 }: {
   node: TreeNode;
   onAddChild?: (parent: TreeNode) => void;
   onEdit?: (node: TreeNode) => void;
   onDelete?: (id: string) => void;
+  rotuloFilho: string;
 }) {
   const [isOpen, setIsOpen] = useState(true);
   const hasChildren = node.filhos && node.filhos.length > 0;
@@ -141,8 +149,8 @@ function TreeNodeItem({
               <button
                 type="button"
                 onClick={() => onAddChild(node)}
-                title="Adicionar sub-item"
-                aria-label={`Adicionar sub-item em ${node.nome}`}
+                title={`Adicionar ${rotuloFilho}`}
+                aria-label={`Adicionar ${rotuloFilho} em ${node.nome}`}
                 className="p-1.5 rounded-lg text-ink-muted hover:text-brand hover:bg-brand-light focus:outline-none focus:ring-2 focus:ring-brand transition-all"
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -186,6 +194,7 @@ function TreeNodeItem({
               onAddChild={onAddChild}
               onEdit={onEdit}
               onDelete={onDelete}
+              rotuloFilho={rotuloFilho}
             />
           ))}
         </div>

@@ -663,7 +663,7 @@ function RecorrenciasPage() {
                       <th className="py-3 px-4 text-center">Tipo</th>
                       <th className="py-3 px-4">Descrição do Template</th>
                       <th className="py-3 px-4">Cliente / Fornecedor</th>
-                      <th className="py-3 px-4">Plano de Contas</th>
+                      <th className="py-3 px-4">Plano Financeiro</th>
                       <th className="py-3 px-4 text-center">Frequência / Dia</th>
                       <th className="py-3 px-4 text-right">Valor (R$)</th>
                       <th className="py-3 px-4 text-center">Próximo Vencimento</th>
@@ -860,7 +860,7 @@ function RecorrenciasPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-ink-muted mb-1">Plano de Contas</label>
+                <label className="block text-xs font-semibold text-ink-muted mb-1">Plano Financeiro</label>
                 <select
                   value={formPlanoContaId}
                   onChange={(e) => setFormPlanoContaId(e.target.value)}

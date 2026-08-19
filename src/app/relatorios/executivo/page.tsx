@@ -388,7 +388,7 @@ export default function DashboardExecutivePage() {
           <div className="flex items-center justify-between border-b border-black/5 pb-2">
             <div>
               <h3 className="text-xs font-bold uppercase tracking-wider text-ink-primary">
-                Bloco 5 — Despesas por Plano de Contas (Nível 2)
+                Bloco 5 — Despesas por Plano Financeiro (Nível 2)
               </h3>
               <span className="text-[10px] text-ink-muted block">Visão por Competência (Clique para expandir grupo)</span>
             </div>

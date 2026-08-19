@@ -19,6 +19,7 @@ export default function DepartamentosPage() {
             Elas seguem acessíveis pelo seletor de ambiente. */}
         {Object.values(DEPARTMENTS)
           .filter((dept) => !dept.ocultoNoHub)
+          .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
           .map((dept) => {
           const Icon = dept.Icon;
           const isInativo = dept.inativo;

@@ -215,7 +215,7 @@ function OrcamentosPage() {
     csv += `Status;${orc.status}\n`;
     csv += `Período;${orc.dataInicio} a ${orc.dataFim}\n\n`;
 
-    csv += `Código;Plano de Contas (Nível 2);Descrição;Quantidade;Unidade;Valor Unitário (R$);Valor Total (R$)\n`;
+    csv += `Código;Plano Financeiro (Nível 2);Descrição;Quantidade;Unidade;Valor Unitário (R$);Valor Total (R$)\n`;
 
     orc.itens?.forEach(it => {
       const q = it.quantidade || '';
@@ -352,7 +352,7 @@ function OrcamentosPage() {
               </div>
               <h1 className="text-xl font-bold text-ink-primary tracking-tight">Gestão de Orçamentos</h1>
               <p className="text-xs text-ink-muted mt-0.5">
-                Cadastre a matriz orçamentária por Plano de Contas Nível 2 e distribua no tempo.
+                Cadastre a matriz orçamentária por Plano Financeiro Nível 2 e distribua no tempo.
               </p>
             </div>
 

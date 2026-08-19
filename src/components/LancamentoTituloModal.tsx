@@ -525,7 +525,7 @@ export function LancamentoTituloModal({ tipo, isOpen, onClose, onSuccess }: Lanc
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-ink-muted mb-1">Plano de Contas (Apenas Lançáveis) *</label>
+                  <label className="block text-xs font-semibold text-ink-muted mb-1">Plano Financeiro (Apenas Lançáveis) *</label>
                   <select
                     value={planoContaId}
                     onChange={(e) => setPlanoContaId(e.target.value)}

@@ -197,7 +197,7 @@ export function ImportExcelOrcamentoModal({
           <div className="bg-brand/5 border border-brand/20 rounded-2xl p-4 flex flex-col justify-between">
             <div className="space-y-1">
               <span className="text-xs font-bold text-brand block">Modelo de Planilha</span>
-              <p className="text-[11px] text-ink-muted">Baixe o modelo com os códigos do Plano de Contas Nível 2 cadastrados.</p>
+              <p className="text-[11px] text-ink-muted">Baixe o modelo com os códigos do Plano Financeiro Nível 2 cadastrados.</p>
             </div>
             <button
               onClick={handleDownloadExemploCSV}
@@ -235,7 +235,7 @@ export function ImportExcelOrcamentoModal({
                   <tr className="bg-surface-muted text-[11px] font-bold text-ink-muted uppercase border-b border-black/10">
                     <th className="p-2 w-12 text-center">Linha</th>
                     <th className="p-2">Código</th>
-                    <th className="p-2">Plano de Contas</th>
+                    <th className="p-2">Plano Financeiro</th>
                     <th className="p-2">Descrição</th>
                     <th className="p-2 text-right">Valor Total</th>
                     <th className="p-2 text-center">Status</th>

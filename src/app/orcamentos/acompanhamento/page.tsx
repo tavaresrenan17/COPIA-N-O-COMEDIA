@@ -98,7 +98,7 @@ export default function AcompanhamentoOrcamentarioPage() {
     csv += `Orçamento ID;${execucaoData.orcamentoId};Versão;v${execucaoData.versao};Status;${execucaoData.status}\n`;
     csv += `Período;${execucaoData.dataInicio} a ${execucaoData.dataFim};Data de Corte;${execucaoData.dataCorte}\n\n`;
 
-    csv += `Código;Plano de Contas Nível 2;Orçado (R$);Comprometido (R$);Realizado (R$);Saldo (R$);% Consumido;Status\n`;
+    csv += `Código;Plano Financeiro Nível 2;Orçado (R$);Comprometido (R$);Realizado (R$);Saldo (R$);% Consumido;Status\n`;
 
     execucaoData.itensExecucao.forEach(it => {
       const o = (it.orcadoCentavos / 100).toFixed(2).replace('.', ',');
@@ -277,7 +277,7 @@ export default function AcompanhamentoOrcamentarioPage() {
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-surface p-4 rounded-2xl shadow-soft border border-black/[0.03]">
             <div className="flex items-center gap-3">
               <span className="text-xs font-bold uppercase tracking-wider text-ink-primary">
-                Acompanhamento por Grupo (Nível 2 do Plano de Contas)
+                Acompanhamento por Grupo (Nível 2 do Plano Financeiro)
               </span>
               <span className="text-xs text-ink-muted">
                 • Clique na linha para ver os títulos e movimentações detalhadas
@@ -304,7 +304,7 @@ export default function AcompanhamentoOrcamentarioPage() {
                 <thead>
                   <tr className="bg-surface-muted text-[11px] font-bold text-ink-muted uppercase border-b border-black/10">
                     <th className="py-3 px-4 w-10"></th>
-                    <th className="py-3 px-4">Plano de Contas Nível 2</th>
+                    <th className="py-3 px-4">Plano Financeiro Nível 2</th>
                     <th className="py-3 px-4 text-right">Orçado (R$)</th>
                     {compararV1 && (
                       <>

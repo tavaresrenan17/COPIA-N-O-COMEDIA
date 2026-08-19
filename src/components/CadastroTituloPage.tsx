@@ -119,7 +119,14 @@ interface ItemParcelaState {
 }
 
 interface ItemRateioState {
-  centroCustoId: string;
+  /** Nó de topo da árvore. Só orienta a escolha da linha; não é gravado. */
+  centroCustoId?: string;
+  /**
+   * Linha de custo que recebe o lançamento — é ela que vai para o banco, no
+   * campo que o domínio ainda chama de `centroCustoId` (coluna centro_custo_id).
+   */
+  linhaCustoId: string;
+  linhaGestaoId?: string;
   /** Sobrepõe a conta contábil do título só nesta linha. Vazio = herda do título. */
   planoContaId?: string;
   percentualStr: string;
@@ -207,6 +214,12 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
   const [pessoas, setPessoas] = useState<Pessoa[]>([]);
   const [planoContas, setPlanoContas] = useState<PlanoConta[]>([]);
   const [centroCustos, setCentroCustos] = useState<CentroCusto[]>([]);
+  /**
+   * Árvore completa — inclui os agrupadores, que `centroCustos` não traz.
+   * Usada só para montar a coluna "Centro de Custo" do rateio; os campos que
+   * gravam lançamento continuam limitados às folhas.
+   */
+  const [centroCustosTodos, setCentroCustosTodos] = useState<CentroCusto[]>([]);
   const [loadingBase, setLoadingBase] = useState(true);
   const [salvando, setSalvando] = useState(false);
 
@@ -322,7 +335,7 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
 
     (async () => {
       setLoadingBase(true);
-      const [pesList, pcList, ccList, ggList, lgList] = await Promise.all([
+      const [pesList, pcList, ccList, ccTodos, ggList, lgList] = await Promise.all([
         erpRepository.getPessoas({
           apenasAtivos: true,
           apenasFornecedores: isPagar,
@@ -330,6 +343,7 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
         }),
         erpRepository.getPlanoContasFolhas(),
         erpRepository.getCentroCustosFolhas(),
+        erpRepository.getCentrosCusto({ apenasAtivos: true }),
         erpRepository.getGruposGestao({ apenasAtivos: true }),
         erpRepository.getLinhasGestao(undefined, { apenasAtivos: true }),
       ]);
@@ -339,6 +353,7 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
       setPessoas(pesList);
       setPlanoContas(pcList);
       setCentroCustos(ccList);
+      setCentroCustosTodos(ccTodos);
       setGruposGestao(ggList);
       setLinhasGestao(lgList);
 
@@ -409,7 +424,7 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
             if (rateiosGravados.length > 0) {
               setRateios(
                 rateiosGravados.map((r) => ({
-                  centroCustoId: r.centroCustoId,
+                  linhaCustoId: r.centroCustoId,
                   percentualStr: r.percentual.toFixed(2).replace('.', ','),
                   valorReais: formatCentavos(
                     Math.round((t.valorBrutoCentavos * r.percentual) / 100)
@@ -667,23 +682,40 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
     );
   }, [valorLiquidoCentavos]);
 
+  /*
+   * Coluna "Centro de Custo" do rateio: os nós de topo da árvore.
+   *
+   * Antes saía de `centroCustos`, que vem de getCentroCustosFolhas() — só os
+   * lançáveis. Um Centro de Custo que já tem Linhas deixa de ser lançável (é a
+   * regra do cadastro), então nenhum deles entrava na lista e o select ficava
+   * apenas com o placeholder. Por isso lê da árvore completa.
+   */
+  const centrosCusto = useMemo(() => {
+    const idsComLinhas = new Set(centroCustosTodos.map((c) => c.parentId).filter(Boolean));
+    // Raízes (inclusive o "Não alocado", que é raiz e lançável) e qualquer nó
+    // intermediário que já tenha Linhas penduradas.
+    return centroCustosTodos.filter((c) => !c.parentId || idsComLinhas.has(c.id));
+  }, [centroCustosTodos]);
+
+  /** Linhas de custo — os nós que aceitam lançamento. */
+  const linhasCusto = useMemo(() => {
+    return centroCustos.filter((c) => c.aceitaLancamento || !!c.parentId || c.nivel > 1);
+  }, [centroCustos]);
+
   /** Conta contábil efetiva da linha: a própria, ou a do título quando não houver. */
   const planoDaLinha = (r: ItemRateioState) => r.planoContaId || planoContaId;
 
   /**
    * Plano de contas do título = o da linha de rateio de maior valor.
-   *
-   * O campo separado no topo desta aba pedia a mesma informação que já é
-   * escolhida por linha na grade abaixo — duas entradas para o mesmo dado,
-   * com risco de divergirem. Agora a grade é a fonte, e o título herda a
-   * classificação predominante (a coluna `titulo.plano_conta_id` é NOT NULL).
    */
   const planoContaDominante = (() => {
     const comPlano = rateios.filter((r) => r.planoContaId);
-    if (comPlano.length === 0) return planoContaId;
-    return comPlano.reduce((a, b) =>
-      parseCentavos(b.valorReais) > parseCentavos(a.valorReais) ? b : a
-    ).planoContaId;
+    if (comPlano.length > 0) {
+      return comPlano.reduce((a, b) =>
+        parseCentavos(b.valorReais) > parseCentavos(a.valorReais) ? b : a
+      ).planoContaId;
+    }
+    return planoContaId || (planoContasDisponiveis.length > 0 ? planoContasDisponiveis[0].id : '');
   })();
 
   const handleAddRateio = () => {
@@ -691,9 +723,19 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
     const restante = Math.max(0, Number((100 - somaPercentualRateio).toFixed(2)));
     const percStr = restante > 0 ? restante.toFixed(2).replace('.', ',') : '0,00';
     const valStr = formatCentavos(Math.round((valorLiquidoCentavos * restante) / 100));
+
+    const primeiraLinha = linhasCusto[0] || centroCustos[0];
+    const primeiroCentro = primeiraLinha?.parentId || (centrosCusto[0]?.id || '');
+
     setRateios((prev) => [
       ...prev,
-      { centroCustoId: centroCustos[0].id, percentualStr: percStr, valorReais: valStr },
+      {
+        centroCustoId: primeiroCentro,
+        linhaCustoId: primeiraLinha?.id || '',
+        planoContaId: planoContasDisponiveis[0]?.id || '',
+        percentualStr: percStr,
+        valorReais: valStr,
+      },
     ]);
   };
 
@@ -704,12 +746,34 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
 
   const handleRateioChange = (
     idx: number,
-    campo: 'centroCustoId' | 'planoContaId',
+    campo: 'centroCustoId' | 'linhaCustoId' | 'linhaGestaoId' | 'planoContaId',
     valor: string
   ) => {
     setRateios((prev) => {
       const copy = [...prev];
-      copy[idx] = { ...copy[idx], [campo]: valor };
+      const item = { ...copy[idx], [campo]: valor };
+
+      if (campo === 'centroCustoId') {
+        const linhasDoCentro = linhasCusto.filter((c) => c.parentId === valor);
+        if (linhasDoCentro.length > 0) {
+          item.linhaCustoId = linhasDoCentro[0].id;
+        } else {
+          /*
+           * Sem linhas, o lançamento cai no próprio Centro de Custo — mas só se
+           * ele for lançável. Um agrupador aqui gravaria rateio num nó que o
+           * banco recusa; melhor deixar o campo vazio e exigir a escolha.
+           */
+          const ehLancavel = linhasCusto.some((c) => c.id === valor);
+          item.linhaCustoId = ehLancavel ? valor : '';
+        }
+      } else if (campo === 'linhaCustoId') {
+        const linhaSel = centroCustos.find((c) => c.id === valor);
+        if (linhaSel?.parentId) {
+          item.centroCustoId = linhaSel.parentId;
+        }
+      }
+
+      copy[idx] = item;
       return copy;
     });
   };
@@ -718,8 +782,15 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
   const handleRateioPadrao = () => {
     const ccId = centroCustoTituloId;
     if (!ccId) return;
+    const ccSel = centroCustos.find((c) => c.id === ccId);
     setRateios([
-      { centroCustoId: ccId, percentualStr: '100,00', valorReais: formatCentavos(valorLiquidoCentavos) },
+      {
+        centroCustoId: ccSel?.parentId || '',
+        linhaCustoId: ccId,
+        planoContaId: planoContasDisponiveis[0]?.id || '',
+        percentualStr: '100,00',
+        valorReais: formatCentavos(valorLiquidoCentavos),
+      },
     ]);
     setLinhaRateioEditando(null);
   };
@@ -782,7 +853,7 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
      *   if (isPagar) {                       // <- orçamento é conceito de DESPESA
      *     for (const r of rateios) {
      *       res[i] = await erpRepository.validarDisponibilidadeOrcamentaria(
-     *         r.centroCustoId, r.planoContaId || planoContaId, parseCentavos(r.valorReais));
+     *         r.linhaCustoId, r.planoContaId || planoContaId, parseCentavos(r.valorReais));
      *     }
      *   }
      *
@@ -852,6 +923,10 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
     const apropPend: string[] = [];
     if (rateios.length > 0 && !isRateioValido)
       apropPend.push('A apropriação por centro de custo deve somar 100,00%.');
+    // Centro de Custo agrupador sem linhas lançáveis deixa a coluna da direita
+    // vazia; sem esta trava o rateio iria para o banco com o destino em branco.
+    if (rateios.some((r) => !r.linhaCustoId))
+      apropPend.push('Há linha de apropriação sem linha de custo informada.');
     if (temAlgumEstouro && !confirmarEstouroCheck)
       apropPend.push('Confirme o estouro de orçamento para prosseguir.');
 
@@ -867,7 +942,7 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
     isRateioGestaoValido,
     rateiosGestao,
     isRateioValido,
-    rateios.length,
+    rateios,
     temAlgumEstouro,
     confirmarEstouroCheck,
   ]);
@@ -1015,7 +1090,7 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
       onSelect: (i) => {
         if (rateioLookupIndex === null) return;
         const copy = [...rateios];
-        copy[rateioLookupIndex] = { ...copy[rateioLookupIndex], centroCustoId: i.id };
+        copy[rateioLookupIndex] = { ...copy[rateioLookupIndex], linhaCustoId: i.id };
         setRateios(copy);
       },
     },
@@ -1052,7 +1127,7 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
     setCentroCustoTituloId(novoCcId);
     setRateios([
       {
-        centroCustoId: novoCcId,
+        linhaCustoId: novoCcId,
         percentualStr: '100,00',
         valorReais: formatCentavos(valorLiquidoCentavos),
       },
@@ -1100,7 +1175,10 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
       const rateiosFinal =
         rateios.length > 0
           ? rateios.map((r) => ({
-              centroCustoId: r.centroCustoId,
+              // A linha de custo é o destino gravado; no domínio/banco o campo
+              // continua se chamando centroCustoId / centro_custo_id.
+              centroCustoId: r.linhaCustoId,
+              linhaGestaoId: r.linhaGestaoId || undefined,
               planoContaId: r.planoContaId || planoContaId || undefined,
               percentual: parseFloat(r.percentualStr.replace(',', '.')) || 0,
               valorCentavos: parseCentavos(r.valorReais),
@@ -1835,26 +1913,6 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
                 </div>
               )}
 
-              {rateios.length === 0 && (
-                <div className="mb-3">
-                  <ErpRow label="Plano de Contas do título">
-                    <ErpLookup
-                      codigo={planoContaSel?.codigo || ''}
-                      descricao={planoContaSel?.nome || ''}
-                      options={lookupConfig.conta.items}
-                      onSelect={lookupConfig.conta.onSelect}
-                      onOpen={() => setLookupAberto('conta')}
-                      onCodeCommit={commitCodigo('conta')}
-                    />
-                  </ErpRow>
-                  <p className="px-1 pt-1 text-[11px] text-erp-label">
-                    {planoContaIncompativel
-                      ? `Este título estava em ${planoContaIncompativel}, incompatível com ${isPagar ? 'contas a pagar' : 'contas a receber'}. Escolha a conta correta.`
-                      : 'Ao incluir linhas de apropriação, a conta passa a vir da linha de maior valor.'}
-                  </p>
-                </div>
-              )}
-
               <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-[12px] text-erp-label mb-3">
                 <span>
                   Valor a apropriar:{' '}
@@ -1897,15 +1955,18 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
                   <thead>
                     <tr className="bg-black/[0.03] text-erp-label">
                       <th className="px-2 py-1.5 text-left font-semibold border-b border-erp-rule">
-                        Centro de Custo / Obra
+                        Centro de Custo
+                      </th>
+                      <th className="px-2 py-1.5 text-left font-semibold border-b border-erp-rule">
+                        Linha de Centro de Custo
                       </th>
                       <th className="px-2 py-1.5 text-left font-semibold border-b border-erp-rule">
                         Plano Financeiro
                       </th>
-                      <th className="px-2 py-1.5 text-right font-semibold border-b border-erp-rule w-[110px]">
+                      <th className="px-2 py-1.5 text-right font-semibold border-b border-erp-rule w-[100px]">
                         %
                       </th>
-                      <th className="px-2 py-1.5 text-right font-semibold border-b border-erp-rule w-[150px]">
+                      <th className="px-2 py-1.5 text-right font-semibold border-b border-erp-rule w-[140px]">
                         Valor apropriado
                       </th>
                       <th className="px-2 py-1.5 border-b border-erp-rule w-[48px]" />
@@ -1914,83 +1975,122 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
                   <tbody>
                     {rateios.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-3 py-6 text-center text-erp-label">
+                        <td colSpan={6} className="px-3 py-6 text-center text-erp-label">
                           Nenhuma apropriação informada — o título será alocado em “Não alocado”.
                         </td>
                       </tr>
                     ) : (
-                      rateios.map((r, idx) => (
-                        <tr key={idx}>
-                          <td className="px-2 py-1 border-b border-erp-rule">
-                            <select
-                              value={r.centroCustoId}
-                              onChange={(e) => handleRateioChange(idx, 'centroCustoId', e.target.value)}
-                              className={`${erpField} w-full`}
-                            >
-                              <option value="">Selecione...</option>
-                              {centroCustos.map((c) => (
-                                <option key={c.id} value={c.id}>
-                                  {c.codigo} - {c.nome}
-                                </option>
-                              ))}
-                            </select>
-                          </td>
+                      rateios.map((r, idx) => {
+                        const linhaAtual = centroCustos.find((c) => c.id === r.linhaCustoId);
+                        const centroCustoIdEfetivo = r.centroCustoId || linhaAtual?.parentId || '';
 
-                          <td className="px-2 py-1 border-b border-erp-rule">
-                            <select
-                              value={planoDaLinha(r)}
-                              onChange={(e) => handleRateioChange(idx, 'planoContaId', e.target.value)}
-                              className={`${erpField} w-full`}
-                            >
-                              <option value="">Padrão do título</option>
-                              {planoContasDisponiveis.map((p) => (
-                                <option key={p.id} value={p.id}>
-                                  {p.codigo} - {p.nome}
-                                </option>
-                              ))}
-                            </select>
-                          </td>
+                        // Um Centro de Custo sem linhas ("Não alocado", p. ex.) é ele
+                        // próprio o destino do lançamento — por isso entra na lista.
+                        const opcoesLinhas = centroCustoIdEfetivo
+                          ? linhasCusto.filter(
+                              (c) =>
+                                c.parentId === centroCustoIdEfetivo ||
+                                c.id === centroCustoIdEfetivo
+                            )
+                          : linhasCusto;
 
-                          <td className="px-2 py-1 border-b border-erp-rule text-right">
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              value={r.percentualStr}
-                              onChange={(e) => handleRateioPercentual(idx, e.target.value)}
-                              className={`${erpField} w-full text-right`}
-                            />
-                          </td>
+                        return (
+                          <tr key={idx}>
+                            {/* 1. Centro de Custo */}
+                            <td className="px-2 py-1 border-b border-erp-rule">
+                              <select
+                                value={centroCustoIdEfetivo}
+                                onChange={(e) => handleRateioChange(idx, 'centroCustoId', e.target.value)}
+                                className={`${erpField} w-full`}
+                              >
+                                <option value="">Selecione o Centro de Custo...</option>
+                                {centrosCusto.map((c) => (
+                                  <option key={c.id} value={c.id}>
+                                    {c.codigo} - {c.nome}
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
 
-                          <td className="px-2 py-1 border-b border-erp-rule text-right font-semibold tabular-nums">
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              value={r.valorReais}
-                              onChange={(e) => handleRateioValor(idx, e.target.value)}
-                              onBlur={(e) => handleRateioValor(idx, normalizeMoney(e.target.value))}
-                              className={`${erpField} w-full text-right font-semibold`}
-                            />
-                          </td>
+                            {/* 2. Linha de Centro de Custo */}
+                            <td className="px-2 py-1 border-b border-erp-rule">
+                              <select
+                                value={r.linhaCustoId}
+                                onChange={(e) => handleRateioChange(idx, 'linhaCustoId', e.target.value)}
+                                className={`${erpField} w-full`}
+                              >
+                                <option value="">Selecione a Linha...</option>
+                                {/* Sem o "cai para todas as folhas" de antes: com a coluna
+                                    da esquerda funcionando, listar Linhas de outro Centro
+                                    de Custo só permitia montar um rateio incoerente. */}
+                                {opcoesLinhas.map((c) => (
+                                  <option key={c.id} value={c.id}>
+                                    {c.codigo} - {c.nome}
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
 
-                          <td className="px-2 py-1 border-b border-erp-rule text-center">
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveRateio(idx)}
-                              title="Remover linha"
-                              className="text-erp-icon hover:text-erp-req"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))
+                            {/* 3. Plano Financeiro */}
+                            <td className="px-2 py-1 border-b border-erp-rule">
+                              <select
+                                value={planoDaLinha(r)}
+                                onChange={(e) => handleRateioChange(idx, 'planoContaId', e.target.value)}
+                                className={`${erpField} w-full`}
+                              >
+                                <option value="">Padrão do título</option>
+                                {planoContasDisponiveis.map((p) => (
+                                  <option key={p.id} value={p.id}>
+                                    {p.codigo} - {p.nome}
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+
+                            {/* 4. % */}
+                            <td className="px-2 py-1 border-b border-erp-rule text-right">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={r.percentualStr}
+                                onChange={(e) => handleRateioPercentual(idx, e.target.value)}
+                                className={`${erpField} w-full text-right`}
+                              />
+                            </td>
+
+                            {/* 5. Valor apropriado */}
+                            <td className="px-2 py-1 border-b border-erp-rule text-right font-semibold tabular-nums">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={r.valorReais}
+                                onChange={(e) => handleRateioValor(idx, e.target.value)}
+                                onBlur={(e) => handleRateioValor(idx, normalizeMoney(e.target.value))}
+                                className={`${erpField} w-full text-right font-semibold`}
+                              />
+                            </td>
+
+                            {/* 6. Ações */}
+                            <td className="px-2 py-1 border-b border-erp-rule text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveRateio(idx)}
+                                title="Remover linha"
+                                className="text-erp-icon hover:text-erp-req"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
 
                   {rateios.length > 0 && (
                     <tfoot>
                       <tr className="bg-black/[0.03] font-semibold">
-                        <td colSpan={2} className="px-2 py-1.5 text-right border-t border-erp-rule">
+                        <td colSpan={3} className="px-2 py-1.5 text-right border-t border-erp-rule">
                           Total
                         </td>
                         <td

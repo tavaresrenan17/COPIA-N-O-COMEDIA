@@ -686,7 +686,7 @@ export default function ConciliacaoEtapa9Page() {
                 <tr className="bg-purple-50 text-[11px] font-bold text-purple-900 uppercase border-b border-purple-200">
                   <th className="p-2.5">Padrão de Texto (MEMO)</th>
                   <th className="p-2.5">Fornecedor / Cliente</th>
-                  <th className="p-2.5">Plano de Contas Sugerido</th>
+                  <th className="p-2.5">Plano Financeiro Sugerido</th>
                   <th className="p-2.5 text-center">Vezes Aplicada</th>
                   <th className="p-2.5 text-center">Status</th>
                 </tr>
@@ -913,7 +913,7 @@ export default function ConciliacaoEtapa9Page() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-ink-muted mb-1">Plano de Contas</label>
+                    <label className="block text-xs font-semibold text-ink-muted mb-1">Plano Financeiro</label>
                     <select
                       value={avulsoPlanoContaId}
                       onChange={(e) => setAvulsoPlanoContaId(e.target.value)}

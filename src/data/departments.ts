@@ -97,6 +97,12 @@ export const DEPARTMENTS: Record<string, DepartmentConfig> = {
         Icon: PieChart,
       },
       {
+        href: '/conciliacao',
+        label: 'Conciliação',
+        subtitle: 'Extrato x Lançamentos',
+        Icon: Landmark,
+      },
+      {
         href: '/contas-pagar',
         label: 'Contas a Pagar',
         subtitle: 'Títulos de despesa e baixas',
@@ -116,33 +122,20 @@ export const DEPARTMENTS: Record<string, DepartmentConfig> = {
         inativo: true,
       },
       {
-        href: '/recorrencias',
-        label: 'Recorrências',
-        subtitle: 'Lançamentos periódicos',
-        Icon: Repeat,
-        inativo: true,
-      },
-      {
-        href: '/conciliacao',
-        label: 'Conciliação',
-        subtitle: 'Extrato x Lançamentos',
-        Icon: Landmark,
-      },
-      {
         href: '/orcamentos',
         label: 'Orçamentos / DAV',
         subtitle: 'Propostas e orçamentos',
         Icon: FileText,
         inativo: true,
       },
+      {
+        href: '/recorrencias',
+        label: 'Recorrências',
+        subtitle: 'Lançamentos periódicos',
+        Icon: Repeat,
+        inativo: true,
+      },
     ],
-    /*
-     * Vazio de propósito: /plano-contas, /centro-custos, /contas-bancarias e
-     * /pessoas pertencem ao departamento "Cadastros Base", que é o dono único
-     * dessas rotas. Duplicar aqui fazia a detecção de departamento resolver
-     * para este bloco (declarado antes), e clicar num card do hub de Cadastros
-     * jogava o usuário neste ambiente.
-     */
     cadastros: [],
     kpis: [
       { label: 'Saldo Atual em Caixa', value: 'R$ 148.500,00', change: '+12,4%', trend: 'up', color: 'text-emerald-500' },
@@ -169,6 +162,12 @@ export const DEPARTMENTS: Record<string, DepartmentConfig> = {
         Icon: PieChart,
       },
       {
+        href: '/departamentos/rh/beneficios',
+        label: 'Benefícios',
+        subtitle: 'VT, VR, Plano de Saúde',
+        Icon: Gift,
+      },
+      {
         href: '/departamentos/rh/colaboradores',
         label: 'Colaboradores',
         subtitle: 'Quadro funcional',
@@ -186,20 +185,7 @@ export const DEPARTMENTS: Record<string, DepartmentConfig> = {
         subtitle: 'Escala e banco de horas',
         Icon: Calendar,
       },
-      {
-        href: '/departamentos/rh/beneficios',
-        label: 'Benefícios',
-        subtitle: 'VT, VR, Plano de Saúde',
-        Icon: Gift,
-      },
     ],
-    /*
-     * Vazio de propósito: /plano-contas, /centro-custos, /contas-bancarias e
-     * /pessoas pertencem ao departamento "Cadastros Base", que é o dono único
-     * dessas rotas. Duplicar aqui fazia a detecção de departamento resolver
-     * para este bloco (declarado antes), e clicar num card do hub de Cadastros
-     * jogava o usuário neste ambiente.
-     */
     cadastros: [],
     kpis: [
       { label: 'Total de Colaboradores', value: '42 ativos', change: '+2 este mês', trend: 'up', color: 'text-blue-500' },
@@ -226,6 +212,12 @@ export const DEPARTMENTS: Record<string, DepartmentConfig> = {
         Icon: PieChart,
       },
       {
+        href: '/departamentos/juridico/compliance',
+        label: 'Compliance & Certidões',
+        subtitle: 'Certidões CND e licenças',
+        Icon: ShieldCheck,
+      },
+      {
         href: '/departamentos/juridico/contratos',
         label: 'Contratos',
         subtitle: 'Vigência e aditivos',
@@ -237,20 +229,7 @@ export const DEPARTMENTS: Record<string, DepartmentConfig> = {
         subtitle: 'Acompanhamento de prazos',
         Icon: Scale,
       },
-      {
-        href: '/departamentos/juridico/compliance',
-        label: 'Compliance & Certidões',
-        subtitle: 'Certidões CND e licenças',
-        Icon: ShieldCheck,
-      },
     ],
-    /*
-     * Vazio de propósito: /plano-contas, /centro-custos, /contas-bancarias e
-     * /pessoas pertencem ao departamento "Cadastros Base", que é o dono único
-     * dessas rotas. Duplicar aqui fazia a detecção de departamento resolver
-     * para este bloco (declarado antes), e clicar num card do hub de Cadastros
-     * jogava o usuário neste ambiente.
-     */
     cadastros: [],
     kpis: [
       { label: 'Contratos Ativos', value: '128 contratos', change: '5 a renovar', trend: 'neutral', color: 'text-amber-500' },
@@ -277,12 +256,6 @@ export const DEPARTMENTS: Record<string, DepartmentConfig> = {
         Icon: PieChart,
       },
       {
-        href: '/departamentos/fiscal/notas',
-        label: 'Notas Fiscais (NF-e)',
-        subtitle: 'Emissão e consulta',
-        Icon: FileSpreadsheet,
-      },
-      {
         href: '/departamentos/fiscal/apuracao',
         label: 'Apuração de Impostos',
         subtitle: 'PIS, COFINS, ISS, ICMS',
@@ -294,14 +267,13 @@ export const DEPARTMENTS: Record<string, DepartmentConfig> = {
         subtitle: 'Guias a recolher',
         Icon: Receipt,
       },
+      {
+        href: '/departamentos/fiscal/notas',
+        label: 'Notas Fiscais (NF-e)',
+        subtitle: 'Emissão e consulta',
+        Icon: FileSpreadsheet,
+      },
     ],
-    /*
-     * Vazio de propósito: /plano-contas, /centro-custos, /contas-bancarias e
-     * /pessoas pertencem ao departamento "Cadastros Base", que é o dono único
-     * dessas rotas. Duplicar aqui fazia a detecção de departamento resolver
-     * para este bloco (declarado antes), e clicar num card do hub de Cadastros
-     * jogava o usuário neste ambiente.
-     */
     cadastros: [],
     kpis: [
       { label: 'Impostos a Recolher', value: 'R$ 24.120,00', change: 'Venc. dia 20', trend: 'neutral', color: 'text-amber-500' },
@@ -328,6 +300,12 @@ export const DEPARTMENTS: Record<string, DepartmentConfig> = {
         Icon: PieChart,
       },
       {
+        href: '/clientes',
+        label: 'Clientes & Carteira',
+        subtitle: 'Base comercial de clientes',
+        Icon: Users,
+      },
+      {
         href: '/orcamentos',
         label: 'Orçamentos / DAV',
         subtitle: 'Documentos auxiliares de venda',
@@ -340,25 +318,12 @@ export const DEPARTMENTS: Record<string, DepartmentConfig> = {
         Icon: TrendingUp,
       },
       {
-        href: '/clientes',
-        label: 'Clientes & Carteira',
-        subtitle: 'Base comercial de clientes',
-        Icon: Users,
-      },
-      {
         href: '/departamentos/comercial/tabela-precos',
         label: 'Tabela de Preços',
         subtitle: 'Catálogo de serviços e itens',
         Icon: Tag,
       },
     ],
-    /*
-     * Vazio de propósito: /plano-contas, /centro-custos, /contas-bancarias e
-     * /pessoas pertencem ao departamento "Cadastros Base", que é o dono único
-     * dessas rotas. Duplicar aqui fazia a detecção de departamento resolver
-     * para este bloco (declarado antes), e clicar num card do hub de Cadastros
-     * jogava o usuário neste ambiente.
-     */
     cadastros: [],
     kpis: [
       { label: 'Faturamento Comercial (Mês)', value: 'R$ 312.400,00', change: '+18.5%', trend: 'up', color: 'text-emerald-500' },
@@ -371,28 +336,32 @@ export const DEPARTMENTS: Record<string, DepartmentConfig> = {
     id: 'cadastros',
     name: 'Cadastros Base',
     subtitle: 'Gestão de Bases & Entidades',
-    description: 'Grupos e linhas de gestão, centro de custos, plano de contas, clientes, fornecedores e bancos',
+    description: 'Grupos e linhas de gestão, centro de custos, plano financeiro, clientes, fornecedores e bancos',
     Icon: ClipboardList,
     themeColor: 'bg-indigo-600',
     accentBg: 'from-indigo-900/40 to-slate-900/40',
     baseHref: '/cadastros',
     navegacaoPorHub: true,
     hubLabel: 'Hub de Cadastros',
-    ocultoNoHub: true,   // já tem entrada própria na navegação global da sidebar
-    /*
-     * Esta lista é a ÚNICA fonte dos cards da tela /cadastros. Antes a página
-     * tinha os cards escritos à mão e a sidebar lia daqui — duas listas
-     * paralelas que já estavam divergentes ("Usuários & Permissões" só existia
-     * na tela; "Hub de Cadastros" só existia na sidebar).
-     *
-     * O hub em si não entra aqui: ele é o `baseHref`.
-     */
+    ocultoNoHub: true,
     modules: [
       {
-        href: '/usuarios',
-        label: 'Usuários & Permissões',
-        subtitle: 'Gestão de acesso corporativo @deltaplanobras.com.br e permissões de departamento',
-        Icon: UserCheck,
+        href: '/centro-custos',
+        label: 'Centro de Custos',
+        subtitle: 'Obras e centros administrativos',
+        Icon: PieChart,
+      },
+      {
+        href: '/contas-bancarias',
+        label: 'Contas Bancárias',
+        subtitle: 'Contas correntes, caixas e saldos iniciais',
+        Icon: Landmark,
+      },
+      {
+        href: '/pessoas',
+        label: 'Credores',
+        subtitle: 'Base unificada de clientes, fornecedores e devedores',
+        Icon: Users,
       },
       {
         href: '/cadastros/grupos-gestao',
@@ -407,28 +376,16 @@ export const DEPARTMENTS: Record<string, DepartmentConfig> = {
         Icon: ListFilter,
       },
       {
-        href: '/pessoas',
-        label: 'Credores',
-        subtitle: 'Base unificada de clientes, fornecedores e devedores',
-        Icon: Users,
-      },
-      {
         href: '/plano-contas',
-        label: 'Plano de Contas',
+        label: 'Plano Financeiro',
         subtitle: 'Estrutura de receitas, custos e despesas',
         Icon: FolderTree,
       },
       {
-        href: '/centro-custos',
-        label: 'Centro de Custos',
-        subtitle: 'Obras e centros administrativos',
-        Icon: PieChart,
-      },
-      {
-        href: '/contas-bancarias',
-        label: 'Contas Bancárias',
-        subtitle: 'Contas correntes, caixas e saldos iniciais',
-        Icon: Landmark,
+        href: '/usuarios',
+        label: 'Usuários & Permissões',
+        subtitle: 'Gestão de acesso corporativo @deltaplanobras.com.br e permissões de departamento',
+        Icon: UserCheck,
       },
     ],
     cadastros: [],

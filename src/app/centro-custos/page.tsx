@@ -85,6 +85,15 @@ export default function CentroCustosPage() {
     ? descendentesDe(centrosTodos, editingId)
     : new Set<string>();
 
+  /**
+   * Vocabulário da tela: o nó de topo é o "Centro de Custo"; tudo que pendura
+   * abaixo dele é uma "Linha de Centro de Custo". É o vínculo selecionado que
+   * define qual dos dois está sendo cadastrado — por isso deriva do formulário,
+   * e não do registro carregado: trocar o vínculo no modal já troca os rótulos.
+   */
+  const ehLinha = formParentId !== '';
+  const rotuloRegistro = ehLinha ? 'Linha de Centro de Custo' : 'Centro de Custo';
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -99,7 +108,7 @@ export default function CentroCustosPage() {
     if (formParentId && !pai) {
       // Sem o pai em mãos o nível sairia 1 com parent_id preenchido — justamente
       // o "filho declarado como raiz" que esta correção existe para evitar.
-      alert('Não foi possível identificar o centro de custo pai. Recarregue a tela e tente de novo.');
+      alert('Não foi possível identificar o Centro de Custo desta linha. Recarregue a tela e tente de novo.');
       return;
     }
     const nivel = pai ? pai.nivel + 1 : 1;
@@ -155,7 +164,7 @@ export default function CentroCustosPage() {
       } catch {
         // O filho já foi gravado: avisar sem travar o usuário num modal que,
         // ao ser reenviado, esbarraria no código único.
-        alert('O centro de custo foi salvo, mas não foi possível marcar o pai como agrupador. Ajuste manualmente.');
+        alert('A linha foi salva, mas não foi possível marcar o Centro de Custo como agrupador. Ajuste manualmente.');
       }
     }
 
@@ -224,7 +233,7 @@ export default function CentroCustosPage() {
         <div>
           <h1 className="text-xl font-bold text-ink-primary tracking-tight">Centro de Custos (Obras & Projetos)</h1>
           <p className="text-xs text-ink-muted mt-1">
-            Estrutura hierárquica por empresa vinculada e tipo de operação (Obras, Frota, Administrativo e Comercial).
+            Cada Centro de Custo se ramifica em Linhas de Centro de Custo, por empresa vinculada e tipo de operação (Obras, Frota, Administrativo e Comercial).
           </p>
         </div>
         <button
@@ -271,6 +280,7 @@ export default function CentroCustosPage() {
         ) : (
           <TreeView
             nodes={treeNodes}
+            rotuloFilho="Linha de Centro de Custo"
             onAddChild={handleOpenNewModal}
             onEdit={handleOpenEditModal}
             onDelete={handleDelete}
@@ -290,7 +300,7 @@ export default function CentroCustosPage() {
             >
               <div className="flex items-center justify-between mb-5 border-b border-black/5 pb-3">
                 <h3 className="text-lg font-bold text-ink-primary">
-                  {editingId ? 'Editar Centro de Custo' : 'Novo Centro de Custo'}
+                  {editingId ? `Editar ${rotuloRegistro}` : `${ehLinha ? 'Nova' : 'Novo'} ${rotuloRegistro}`}
                 </h3>
                 <button onClick={() => setModalOpen(false)} className="text-ink-muted hover:text-ink-primary">
                   <X className="w-5 h-5" />
@@ -300,7 +310,7 @@ export default function CentroCustosPage() {
               <form onSubmit={handleSubmit} className="space-y-4">
 
                 <div>
-                  <label className="block text-xs font-semibold text-ink-muted mb-1">Centro de Custo Pai</label>
+                  <label className="block text-xs font-semibold text-ink-muted mb-1">Centro de Custo</label>
                   <select
                     value={formParentId}
                     onChange={(e) => {
@@ -315,7 +325,7 @@ export default function CentroCustosPage() {
                     }}
                     className="w-full bg-surface-muted border border-black/10 rounded-xl px-3 py-2 text-xs text-ink-primary focus:outline-none focus:ring-2 focus:ring-brand"
                   >
-                    <option value="">Nenhum (Nó Raiz)</option>
+                    <option value="">Nenhum — cadastrar um Centro de Custo</option>
                     {centrosTodos
                       // Fora: o próprio nó, sua subárvore (viraria ciclo e o ramo
                       // sumiria da tela) e os inativos (o filho apareceria solto
@@ -335,6 +345,11 @@ export default function CentroCustosPage() {
                         </option>
                       ))}
                   </select>
+                  <p className="text-[11px] text-ink-muted mt-1">
+                    {ehLinha
+                      ? 'Este registro será uma Linha do Centro de Custo selecionado.'
+                      : 'Sem vínculo, o registro é um Centro de Custo — as Linhas são cadastradas dentro dele.'}
+                  </p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
@@ -368,7 +383,7 @@ export default function CentroCustosPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-ink-muted mb-1">Nome do Centro de Custo *</label>
+                  <label className="block text-xs font-semibold text-ink-muted mb-1">Nome d{ehLinha ? 'a' : 'o'} {rotuloRegistro} *</label>
                   <input
                     type="text"
                     placeholder="Ex: Residencial Villa Alpina"
@@ -410,10 +425,11 @@ export default function CentroCustosPage() {
                       onChange={(e) => setFormAceitaLancamento(e.target.checked)}
                       className="rounded border-gray-300 text-brand focus:ring-brand w-4 h-4"
                     />
-                    <span>Aceita Lançamento (Nó Folha)</span>
+                    <span>Aceita Lançamento</span>
                   </label>
                   <p className="text-[11px] text-ink-muted mt-1">
-                    Nós agrupadores não aceitam rateio financeiro direto.
+                    Ao ganhar a primeira Linha, o Centro de Custo vira agrupador e deixa de
+                    aceitar rateio direto — o custo passa a ser lançado nas Linhas.
                   </p>
                 </div>
 
@@ -429,7 +445,7 @@ export default function CentroCustosPage() {
                     type="submit"
                     className="px-5 py-2 bg-brand hover:bg-brand-hover text-white rounded-xl text-xs font-semibold shadow-md active:scale-[0.98]"
                   >
-                    Salvar Centro de Custo
+                    Salvar {rotuloRegistro}
                   </button>
                 </div>
               </form>

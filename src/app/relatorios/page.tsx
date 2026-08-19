@@ -16,7 +16,7 @@ export default function RelatoriosPage() {
         <HubCard
           href="/relatorios/executivo"
           title="Dashboard Executivo"
-          description="Resultado do período, despesas por plano de contas e centros de custo"
+          description="Resultado do período, despesas por plano financeiro e centros de custo"
           Icon={BarChart3}
         />
         <HubCard
