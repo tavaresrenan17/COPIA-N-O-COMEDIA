@@ -746,15 +746,16 @@ export class SupabaseErpRepository implements IErpRepository {
     if (!this.client) return this.fallbackMock.getLinhasGestao(grupoGestaoId, filtro);
     const client = this.client;
     return this.cache.obter(`linha_gestao:${grupoGestaoId ?? ''}:${JSON.stringify(filtro ?? {})}`, async () => {
-    let query = client.from('linha_gestao').select('*');
+    let query = client.from('linha_gestao').select('*, grupo_gestao:grupo_gestao_id (id, codigo, nome)');
     if (grupoGestaoId) query = query.eq('grupo_gestao_id', grupoGestaoId);
     if (filtro?.apenasAtivos !== false) query = query.eq('ativo', true);
     const { data } = await query.order('codigo');
     if (!data) return this.fallbackMock.getLinhasGestao(grupoGestaoId, filtro);
 
-    return data.map(l => ({
+    return data.map((l: any) => ({
       id: l.id,
       grupoGestaoId: l.grupo_gestao_id,
+      grupoGestaoNome: l.grupo_gestao ? `${l.grupo_gestao.codigo} - ${l.grupo_gestao.nome}` : undefined,
       codigo: l.codigo,
       nome: l.nome,
       descricao: l.descricao,
@@ -767,11 +768,12 @@ export class SupabaseErpRepository implements IErpRepository {
 
   async getLinhaGestaoById(id: string): Promise<LinhaGestao | null> {
     if (!this.client) return this.fallbackMock.getLinhaGestaoById(id);
-    const { data } = await this.client.from('linha_gestao').select('*').eq('id', id).single();
+    const { data } = await this.client.from('linha_gestao').select('*, grupo_gestao:grupo_gestao_id (id, codigo, nome)').eq('id', id).single();
     if (!data) return null;
     return {
       id: data.id,
       grupoGestaoId: data.grupo_gestao_id,
+      grupoGestaoNome: (data as any).grupo_gestao ? `${(data as any).grupo_gestao.codigo} - ${(data as any).grupo_gestao.nome}` : undefined,
       codigo: data.codigo,
       nome: data.nome,
       descricao: data.descricao,

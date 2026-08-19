@@ -366,11 +366,23 @@ export class MockErpRepository implements IErpRepository {
     if (filtro?.apenasAtivos !== false) {
       result = result.filter(l => l.ativo);
     }
-    return result;
+    return result.map(l => {
+      const g = mockGruposGestao.find(grupo => grupo.id === l.grupoGestaoId);
+      return {
+        ...l,
+        grupoGestaoNome: g ? `${g.codigo} - ${g.nome}` : l.grupoGestaoNome,
+      };
+    });
   }
 
   async getLinhaGestaoById(id: string): Promise<LinhaGestao | null> {
-    return mockLinhasGestao.find(l => l.id === id) || null;
+    const l = mockLinhasGestao.find(item => item.id === id);
+    if (!l) return null;
+    const g = mockGruposGestao.find(grupo => grupo.id === l.grupoGestaoId);
+    return {
+      ...l,
+      grupoGestaoNome: g ? `${g.codigo} - ${g.nome}` : l.grupoGestaoNome,
+    };
   }
 
   async createLinhaGestao(data: Omit<LinhaGestao, 'id' | 'createdAt' | 'updatedAt'>): Promise<LinhaGestao> {

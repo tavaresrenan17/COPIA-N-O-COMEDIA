@@ -44,7 +44,7 @@ export default function LinhasGestaoPage() {
   const carregarDados = async () => {
     setLoading(true);
     const [gList, lList] = await Promise.all([
-      erpRepository.getGruposGestao({ apenasAtivos: true }),
+      erpRepository.getGruposGestao({ apenasAtivos: false }),
       erpRepository.getLinhasGestao(undefined, { apenasAtivos: false }),
     ]);
     setGrupos(gList);
@@ -58,7 +58,8 @@ export default function LinhasGestaoPage() {
 
   const abrirModalNovo = () => {
     setLinhaEditando(null);
-    setGrupoGestaoId(grupos[0]?.id || '');
+    const gruposAtivos = grupos.filter((g) => g.ativo);
+    setGrupoGestaoId(gruposAtivos[0]?.id || grupos[0]?.id || '');
     setCodigo(proximoCodigo(linhas));
     setNome('');
     setDescricao('');
@@ -143,10 +144,13 @@ export default function LinhasGestaoPage() {
   };
 
   const linhasFiltradas = linhas.filter((l) => {
+    const gPai = grupos.find((g) => g.id === l.grupoGestaoId);
+    const nomeGrupoPai = gPai ? `${gPai.codigo} - ${gPai.nome}` : (l.grupoGestaoNome || '');
+
     const bateSearch =
       l.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
       l.codigo.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (l.grupoGestaoNome && l.grupoGestaoNome.toLowerCase().includes(searchTerm.toLowerCase()));
+      nomeGrupoPai.toLowerCase().includes(searchTerm.toLowerCase());
     const bateGrupo = grupoFiltroId ? l.grupoGestaoId === grupoFiltroId : true;
     return bateSearch && bateGrupo;
   });
@@ -245,55 +249,60 @@ export default function LinhasGestaoPage() {
                   </td>
                 </tr>
               ) : (
-                linhasFiltradas.map((l) => (
-                  <tr key={l.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="py-3 px-4 font-mono font-bold text-slate-800">{l.codigo}</td>
-                    <td className="py-3 px-4">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 font-bold text-[11px] border border-purple-200">
-                        {l.grupoGestaoNome || '—'}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 font-semibold text-slate-800">{l.nome}</td>
-                    <td className="py-3 px-4 text-slate-500">{l.descricao || '—'}</td>
-                    <td className="py-3 px-4">
-                      <span
-                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase ${
-                          l.ativo
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                            : 'bg-slate-100 text-slate-500 border border-slate-200'
-                        }`}
-                      >
-                        {l.ativo ? (
-                          <>
-                            <CheckCircle2 className="w-3 h-3" /> Ativo
-                          </>
-                        ) : (
-                          <>
-                            <XCircle className="w-3 h-3" /> Inativo
-                          </>
-                        )}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => abrirModalEditar(l)}
-                          title="Editar"
-                          className="p-1.5 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
+                linhasFiltradas.map((l) => {
+                  const gPai = grupos.find((g) => g.id === l.grupoGestaoId);
+                  const nomeGrupoPai = gPai ? `${gPai.codigo} - ${gPai.nome}` : (l.grupoGestaoNome || '—');
+
+                  return (
+                    <tr key={l.id} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="py-3 px-4 font-mono font-bold text-slate-800">{l.codigo}</td>
+                      <td className="py-3 px-4">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 font-bold text-[11px] border border-purple-200">
+                          {nomeGrupoPai}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 font-semibold text-slate-800">{l.nome}</td>
+                      <td className="py-3 px-4 text-slate-500">{l.descricao || '—'}</td>
+                      <td className="py-3 px-4">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase ${
+                            l.ativo
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : 'bg-slate-100 text-slate-500 border border-slate-200'
+                          }`}
                         >
-                          <Pencil className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => setLinhaExcluindo(l)}
-                          title="Excluir"
-                          className="p-1.5 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 transition-colors"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                          {l.ativo ? (
+                            <>
+                              <CheckCircle2 className="w-3 h-3" /> Ativo
+                            </>
+                          ) : (
+                            <>
+                              <XCircle className="w-3 h-3" /> Inativo
+                            </>
+                          )}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => abrirModalEditar(l)}
+                            title="Editar"
+                            className="p-1.5 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setLinhaExcluindo(l)}
+                            title="Excluir"
+                            className="p-1.5 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
