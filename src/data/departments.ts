@@ -123,10 +123,9 @@ export const DEPARTMENTS: Record<string, DepartmentConfig> = {
       },
       {
         href: '/orcamentos',
-        label: 'Orçamentos / DAV',
-        subtitle: 'Propostas e orçamentos',
+        label: 'Orçamento de Obra',
+        subtitle: 'Planilha por obra e unidade construtiva',
         Icon: FileText,
-        inativo: true,
       },
       {
         href: '/recorrencias',

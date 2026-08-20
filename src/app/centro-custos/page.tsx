@@ -86,13 +86,19 @@ export default function CentroCustosPage() {
     : new Set<string>();
 
   /**
-   * Vocabulário da tela: o nó de topo é o "Centro de Custo"; tudo que pendura
-   * abaixo dele é uma "Linha de Centro de Custo". É o vínculo selecionado que
-   * define qual dos dois está sendo cadastrado — por isso deriva do formulário,
-   * e não do registro carregado: trocar o vínculo no modal já troca os rótulos.
+   * Vocabulário da tela: o nó de topo é a "Obra" e tudo que pendura abaixo dele
+   * é uma "Unidade Construtiva". São exatamente os nomes das duas primeiras
+   * colunas da aba Apropriação do título — mesma árvore, mesmo cadastro.
+   *
+   * "Obra" cobre também frota, administrativo e comercial, que são centros de
+   * custo sem obra física; por isso o rótulo de topo cita os dois nomes.
+   *
+   * É o vínculo selecionado que define qual dos dois está sendo cadastrado — por
+   * isso deriva do formulário, e não do registro carregado: trocar o vínculo no
+   * modal já troca os rótulos.
    */
   const ehLinha = formParentId !== '';
-  const rotuloRegistro = ehLinha ? 'Linha de Centro de Custo' : 'Centro de Custo';
+  const rotuloRegistro = ehLinha ? 'Unidade Construtiva' : 'Obra / Centro de Custo';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -108,7 +114,7 @@ export default function CentroCustosPage() {
     if (formParentId && !pai) {
       // Sem o pai em mãos o nível sairia 1 com parent_id preenchido — justamente
       // o "filho declarado como raiz" que esta correção existe para evitar.
-      alert('Não foi possível identificar o Centro de Custo desta linha. Recarregue a tela e tente de novo.');
+      alert('Não foi possível identificar a Obra desta unidade construtiva. Recarregue a tela e tente de novo.');
       return;
     }
     const nivel = pai ? pai.nivel + 1 : 1;
@@ -164,7 +170,7 @@ export default function CentroCustosPage() {
       } catch {
         // O filho já foi gravado: avisar sem travar o usuário num modal que,
         // ao ser reenviado, esbarraria no código único.
-        alert('A linha foi salva, mas não foi possível marcar o Centro de Custo como agrupador. Ajuste manualmente.');
+        alert('A unidade construtiva foi salva, mas não foi possível marcar a Obra como agrupadora. Ajuste manualmente.');
       }
     }
 
@@ -233,7 +239,10 @@ export default function CentroCustosPage() {
         <div>
           <h1 className="text-xl font-bold text-ink-primary tracking-tight">Centro de Custos (Obras & Projetos)</h1>
           <p className="text-xs text-ink-muted mt-1">
-            Cada Centro de Custo se ramifica em Linhas de Centro de Custo, por empresa vinculada e tipo de operação (Obras, Frota, Administrativo e Comercial).
+            Cada Obra se ramifica em Unidades Construtivas, por empresa vinculada e tipo de
+            operação (Obras, Frota, Administrativo e Comercial). São estes os nomes que a aba{' '}
+            <strong>Apropriação</strong> do título usa nas duas primeiras colunas, e é aqui que o
+            orçamento da obra encontra as unidades para distribuir os itens.
           </p>
         </div>
         <button
@@ -241,7 +250,7 @@ export default function CentroCustosPage() {
           className="flex items-center justify-center gap-2 px-4 py-2.5 bg-brand hover:bg-brand-hover text-white rounded-xl text-xs font-semibold shadow-md transition-all active:scale-[0.98]"
         >
           <Plus className="w-4 h-4" />
-          <span>Novo Centro de Custo</span>
+          <span>Nova Obra</span>
         </button>
       </div>
 
@@ -276,11 +285,11 @@ export default function CentroCustosPage() {
         {loading ? (
           <div className="p-12 text-center text-ink-muted font-medium">Carregando centro de custos...</div>
         ) : treeNodes.length === 0 ? (
-          <div className="p-12 text-center text-ink-muted">Nenhum centro de custo encontrado.</div>
+          <div className="p-12 text-center text-ink-muted">Nenhuma obra encontrada.</div>
         ) : (
           <TreeView
             nodes={treeNodes}
-            rotuloFilho="Linha de Centro de Custo"
+            rotuloFilho="Unidade Construtiva"
             onAddChild={handleOpenNewModal}
             onEdit={handleOpenEditModal}
             onDelete={handleDelete}
@@ -310,7 +319,7 @@ export default function CentroCustosPage() {
               <form onSubmit={handleSubmit} className="space-y-4">
 
                 <div>
-                  <label className="block text-xs font-semibold text-ink-muted mb-1">Centro de Custo</label>
+                  <label className="block text-xs font-semibold text-ink-muted mb-1">Obra</label>
                   <select
                     value={formParentId}
                     onChange={(e) => {
@@ -325,7 +334,7 @@ export default function CentroCustosPage() {
                     }}
                     className="w-full bg-surface-muted border border-black/10 rounded-xl px-3 py-2 text-xs text-ink-primary focus:outline-none focus:ring-2 focus:ring-brand"
                   >
-                    <option value="">Nenhum — cadastrar um Centro de Custo</option>
+                    <option value="">Nenhum — cadastrar uma Obra</option>
                     {centrosTodos
                       // Fora: o próprio nó, sua subárvore (viraria ciclo e o ramo
                       // sumiria da tela) e os inativos (o filho apareceria solto
@@ -347,8 +356,8 @@ export default function CentroCustosPage() {
                   </select>
                   <p className="text-[11px] text-ink-muted mt-1">
                     {ehLinha
-                      ? 'Este registro será uma Linha do Centro de Custo selecionado.'
-                      : 'Sem vínculo, o registro é um Centro de Custo — as Linhas são cadastradas dentro dele.'}
+                      ? 'Este registro será uma Unidade Construtiva da Obra selecionada.'
+                      : 'Sem vínculo, o registro é uma Obra — as Unidades Construtivas são cadastradas dentro dela.'}
                   </p>
                 </div>
 
@@ -428,7 +437,7 @@ export default function CentroCustosPage() {
                     <span>Aceita Lançamento</span>
                   </label>
                   <p className="text-[11px] text-ink-muted mt-1">
-                    Ao ganhar a primeira Linha, o Centro de Custo vira agrupador e deixa de
+                    Ao ganhar a primeira Unidade Construtiva, a Obra vira agrupadora e deixa de
                     aceitar rateio direto — o custo passa a ser lançado nas Linhas.
                   </p>
                 </div>

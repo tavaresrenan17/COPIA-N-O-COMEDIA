@@ -1,7 +1,5 @@
 'use client';
 
-import { ModuloDesativado } from '@/components/ModuloDesativado';
-
 import React, { useEffect, useState } from 'react';
 import { 
   erpRepository, 
@@ -78,6 +76,18 @@ function OrcamentosPage() {
     loadOrcamentosList();
   }, [filtroCcId, filtroStatus]);
 
+  /**
+   * Obras: os nós de topo da árvore de centro de custo. Orçamento é da OBRA —
+   * uma unidade construtiva não tem orçamento próprio, tem itens dentro do
+   * orçamento da obra.
+   */
+  const obras = centrosCusto.filter(cc => !cc.parentId);
+
+  /** Unidades Construtivas da obra do orçamento aberto no editor. */
+  const unidadesDaObraAtiva = activeOrcamento
+    ? centrosCusto.filter(cc => cc.parentId === activeOrcamento.centroCustoId)
+    : [];
+
   async function loadAuxiliaryData() {
     const [ccs, pcs] = await Promise.all([
       erpRepository.getCentrosCusto({ apenasAtivos: true }),
@@ -88,7 +98,8 @@ function OrcamentosPage() {
     const n2 = pcs.filter(p => p.nivel === 2 || (p.codigo.split('.').length === 2 && !p.aceitaLancamento));
     setPlanosNivel2(n2.length > 0 ? n2 : pcs.filter(p => p.nivel === 2));
 
-    if (ccs.length > 0) setFormCcId(ccs[0].id);
+    const raizes = ccs.filter(cc => !cc.parentId);
+    if (raizes.length > 0) setFormCcId(raizes[0].id);
   }
 
   async function loadOrcamentosList() {
@@ -138,24 +149,22 @@ function OrcamentosPage() {
     if (!formCcId || !formNome) return;
 
     try {
-      // Cria orçamento com 1 item padrão inicial
-      const defPc = planosNivel2[0]?.id || '';
+      /*
+       * Nasce sem itens. Antes vinha com um "Item Inicial Planejado" de
+       * R$ 12.000,00 — inofensivo enquanto o módulo era mock, mas agora o
+       * orçamento é gravado no banco e esse item apareceria como opção real no
+       * combo Item Orçamento da aba Apropriação do título.
+       *
+       * O editor abre com uma linha em branco logo em seguida, então não há
+       * perda de comodidade.
+       */
       const novo = await erpRepository.createOrcamento({
         centroCustoId: formCcId,
         nome: formNome,
         dataInicio: formDataInicio,
         dataFim: formDataFim,
         observacao: formObservacao,
-        itens: [
-          {
-            planoContaId: defPc,
-            descricao: 'Item Inicial Planejado',
-            valorTotalCentavos: 1200000, // R$ 12.000,00
-            periodos: [
-              { mesReferencia: `${formDataInicio.substring(0, 7)}-01`, valorCentavos: 1200000 }
-            ]
-          }
-        ]
+        itens: []
       });
 
       setModalNovoOpen(false);
@@ -210,12 +219,12 @@ function OrcamentosPage() {
   }
 
   function handleExportarExcel(orc: Orcamento) {
-    let csv = `Centro de Custo;${orc.centroCustoNome}\n`;
+    let csv = `Obra;${orc.centroCustoNome}\n`;
     csv += `Orçamento;${orc.nome} (v${orc.versao})\n`;
     csv += `Status;${orc.status}\n`;
     csv += `Período;${orc.dataInicio} a ${orc.dataFim}\n\n`;
 
-    csv += `Código;Plano Financeiro (Nível 2);Descrição;Quantidade;Unidade;Valor Unitário (R$);Valor Total (R$)\n`;
+    csv += `Código;Unidade Construtiva;Plano Financeiro (Nível 2);Descrição;Quantidade;Unidade;Valor Unitário (R$);Valor Total (R$)\n`;
 
     orc.itens?.forEach(it => {
       const q = it.quantidade || '';
@@ -223,7 +232,10 @@ function OrcamentosPage() {
       const vu = it.valorUnitarioCentavos ? (it.valorUnitarioCentavos / 100).toFixed(2).replace('.', ',') : '';
       const vt = (it.valorTotalCentavos / 100).toFixed(2).replace('.', ',');
 
-      csv += `${it.planoContaCodigo};${it.planoContaNome};"${it.descricao || ''}";${q};${u};${vu};${vt}\n`;
+      // A coluna Código é a do ITEM; antes saía o código do plano de contas,
+      // que já tem coluna própria logo adiante.
+      const uc = it.centroCustoNome || 'Toda a obra';
+      csv += `${it.codigo || ''};"${uc}";${it.planoContaCodigo};${it.planoContaNome};"${it.descricao || ''}";${q};${u};${vu};${vt}\n`;
     });
 
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -257,19 +269,28 @@ function OrcamentosPage() {
             }`}
           >
             <Table className="w-4 h-4" />
-            <span>Matriz &amp; Cadastro (Etapa 6)</span>
+            <span>Planilha da Obra</span>
           </button>
 
+          {/*
+            Acompanhamento desligado nesta rodada.
+
+            getOrcamentoExecucao() ainda é servido pelo mock em memória: o
+            cadastro já grava no banco, mas orçado × comprometido × realizado e
+            a Curva S sairiam de dados inventados. Exibir isso ao lado de uma
+            planilha real seria pior do que não exibir.
+
+            Para religar: implemente getOrcamentoExecucao no
+            SupabaseErpRepository e devolva o onClick de setActiveTab.
+          */}
           <button
-            onClick={() => setActiveTab('acompanhamento')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-              activeTab === 'acompanhamento' 
-                ? 'bg-brand text-white shadow-md' 
-                : 'text-ink-muted hover:text-ink-primary hover:bg-black/5'
-            }`}
+            type="button"
+            disabled
+            title="Acompanhamento e Curva S ainda não estão ligados ao banco — em desenvolvimento."
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-ink-muted/50 cursor-not-allowed"
           >
             <TrendingUp className="w-4 h-4" />
-            <span>Acompanhamento &amp; Curva S (Etapa 7)</span>
+            <span>Acompanhamento &amp; Curva S (em breve)</span>
           </button>
         </div>
       )}
@@ -334,7 +355,7 @@ function OrcamentosPage() {
             dataInicio={activeOrcamento.dataInicio}
             dataFim={activeOrcamento.dataFim}
             planosNivel2={planosNivel2}
-            subCentrosCusto={centrosCusto}
+            subCentrosCusto={unidadesDaObraAtiva}
             initialItens={activeOrcamento.itens}
             isReadonly={activeOrcamento.status === 'aprovado'}
             onSave={handleSaveSpreadsheetItens}
@@ -348,11 +369,12 @@ function OrcamentosPage() {
             <div>
               <div className="flex items-center gap-2 text-brand mb-1">
                 <PieChart className="w-5 h-5 stroke-[2.5]" />
-                <span className="text-xs font-bold uppercase tracking-wider">Etapa 6 — Cadastro & Estrutura</span>
+                <span className="text-xs font-bold uppercase tracking-wider">Planilha Orçamentária</span>
               </div>
-              <h1 className="text-xl font-bold text-ink-primary tracking-tight">Gestão de Orçamentos</h1>
+              <h1 className="text-xl font-bold text-ink-primary tracking-tight">Orçamento de Obra</h1>
               <p className="text-xs text-ink-muted mt-0.5">
-                Cadastre a matriz orçamentária por Plano Financeiro Nível 2 e distribua no tempo.
+                Um orçamento por Obra. Cada item recebe um código, uma Unidade Construtiva e o
+                Plano Financeiro — é este item que a aba Apropriação do título oferece.
               </p>
             </div>
 
@@ -386,8 +408,8 @@ function OrcamentosPage() {
                   onChange={(e) => setFiltroCcId(e.target.value)}
                   className="bg-transparent text-xs font-semibold text-ink-primary focus:outline-none"
                 >
-                  <option value="">Todos os Centros de Custo</option>
-                  {centrosCusto.map(cc => (
+                  <option value="">Todas as Obras</option>
+                  {obras.map(cc => (
                     <option key={cc.id} value={cc.id}>{cc.codigo} - {cc.nome}</option>
                   ))}
                 </select>
@@ -423,7 +445,7 @@ function OrcamentosPage() {
                 <table className="w-full text-left text-xs">
                   <thead>
                     <tr className="bg-surface-muted text-[11px] font-bold text-ink-muted uppercase border-b border-black/10">
-                      <th className="py-3 px-4">Centro de Custo</th>
+                      <th className="py-3 px-4">Obra</th>
                       <th className="py-3 px-4">Nome do Orçamento</th>
                       <th className="py-3 px-4 text-center">Versão</th>
                       <th className="py-3 px-4">Período</th>
@@ -561,14 +583,14 @@ function OrcamentosPage() {
 
               <form onSubmit={handleCreateNovoSubmit} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-semibold text-ink-muted mb-1">Centro de Custo (Obra/Projeto)</label>
+                  <label className="block text-xs font-semibold text-ink-muted mb-1">Obra</label>
                   <select
                     value={formCcId}
                     onChange={(e) => setFormCcId(e.target.value)}
                     required
                     className="w-full bg-surface-muted border border-black/10 rounded-xl px-3 py-2 text-xs font-bold text-ink-primary focus:outline-none focus:ring-2 focus:ring-brand"
                   >
-                    {centrosCusto.map(cc => (
+                    {obras.map(cc => (
                       <option key={cc.id} value={cc.id}>{cc.codigo} - {cc.nome}</option>
                     ))}
                   </select>
@@ -715,11 +737,4 @@ function OrcamentosPage() {
 
 }
 
-/*
- * Módulo desativado a pedido: não está em uso no momento.
- * O componente OrcamentosPage acima permanece intacto — para reativar, devolva o
- * `export default` a ele e remova `inativo: true` em src/data/departments.ts.
- */
-export default function Page() {
-  return <ModuloDesativado nome="Orçamentos / DAV" />;
-}
+export default OrcamentosPage;

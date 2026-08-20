@@ -171,6 +171,14 @@ export interface LinhaGestao {
   id: string;
   grupoGestaoId: string;
   grupoGestaoNome?: string;
+  /**
+   * Obra vinculada (nó raiz de centro_custo). É este vínculo que alimenta a aba
+   * Apropriação: ela só oferece as obras das linhas de gestão alocadas no título.
+   * Opcional porque as linhas cadastradas antes da migration 09 não têm obra.
+   */
+  centroCustoId?: string;
+  centroCustoCodigo?: string;
+  centroCustoNome?: string;
   codigo: string;
   nome: string;
   descricao?: string;
@@ -184,9 +192,22 @@ export interface LinhaGestao {
  */
 export interface TituloRateio {
   id?: string;
+  /**
+   * Destino do lançamento: a Unidade Construtiva (nó filho da obra) ou, quando a
+   * obra não tem unidades, a própria obra. A coluna do banco continua se
+   * chamando centro_custo_id.
+   */
   centroCustoId: string;
   centroCustoCodigo?: string;
   centroCustoNome?: string;
+  /** Obra do lançamento (pai da unidade construtiva). Só orienta a tela. */
+  obraId?: string;
+  obraNome?: string;
+  /** Item de orçamento apropriado — a 3ª coluna da aba Apropriação. */
+  orcamentoItemId?: string;
+  orcamentoItemCodigo?: string;
+  orcamentoItemDescricao?: string;
+  /** Derivado do item de orçamento; mantém DRE, dashboard e BI funcionando. */
   planoContaId?: string;
   planoContaCodigo?: string;
   planoContaNome?: string;
@@ -561,10 +582,14 @@ export interface OrcamentoItemPeriodo {
 export interface OrcamentoItem {
   id: string;
   orcamentoId?: string;
+  /** Código na planilha orçamentária, ex.: "1.1.3". */
+  codigo?: string;
   planoContaId: string; // ID do Plano de Contas Nível 2
   planoContaCodigo: string;
   planoContaNome: string;
-  centroCustoId?: string; // Sub-centro opcional
+  /** Unidade Construtiva do item (nó filho da obra em centro_custo). */
+  centroCustoId?: string;
+  centroCustoCodigo?: string;
   centroCustoNome?: string;
   descricao?: string;
   quantidade?: number;

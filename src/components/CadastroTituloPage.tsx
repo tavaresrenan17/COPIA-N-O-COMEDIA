@@ -32,6 +32,8 @@ import {
   TituloAuditLog,
   GrupoGestao,
   LinhaGestao,
+  Orcamento,
+  OrcamentoItem,
 } from '@/data';
 import { formatCurrency, formatDate, formatDocument, formatAuditDateHora } from '@/lib/formatters';
 import { useAuth } from '@/context/AuthContext';
@@ -118,17 +120,24 @@ interface ItemParcelaState {
   valorReais: string;
 }
 
+/**
+ * Uma linha da aba Apropriação: Obra → Unidade Construtiva → Item de Orçamento.
+ *
+ * As três colunas saem da mesma árvore de sempre (`centro_custo`): a raiz é a
+ * OBRA e o filho é a UNIDADE CONSTRUTIVA. O Item de Orçamento vem da planilha
+ * orçamentária cadastrada para aquela obra.
+ */
 interface ItemRateioState {
-  /** Nó de topo da árvore. Só orienta a escolha da linha; não é gravado. */
-  centroCustoId?: string;
+  /** Obra (nó de topo). Só orienta a escolha da unidade; não é gravada. */
+  obraId: string;
   /**
-   * Linha de custo que recebe o lançamento — é ela que vai para o banco, no
-   * campo que o domínio ainda chama de `centroCustoId` (coluna centro_custo_id).
+   * Destino do lançamento — é ele que vai para o banco, na coluna
+   * centro_custo_id. É a Unidade Construtiva escolhida ou, quando a obra não
+   * tem unidades, a própria obra.
    */
-  linhaCustoId: string;
-  linhaGestaoId?: string;
-  /** Sobrepõe a conta contábil do título só nesta linha. Vazio = herda do título. */
-  planoContaId?: string;
+  unidadeId: string;
+  /** Item da planilha orçamentária da obra. Define o plano de contas gravado. */
+  orcamentoItemId?: string;
   percentualStr: string;
   valorReais: string;
 }
@@ -176,8 +185,8 @@ type LookupKey =
   | 'obra'
   | 'conta'
   | 'indexador'
-  | 'centrocusto'
-  | 'planofinanceiro';
+  | 'unidade'
+  | 'itemorcamento';
 
 type Aba = 'cadastro' | 'parcelas' | 'alocacao' | 'apropria-obra';
 
@@ -256,8 +265,10 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
     { grupoGestaoId: string; linhaGestaoId: string; percentualStr: string; valorReais: string }[]
   >([]);
 
-  /* ---------------- apropriação por centro de custo ---------------- */
+  /* ---------------- apropriação por obra ---------------- */
   const [rateios, setRateios] = useState<ItemRateioState[]>([]);
+  /** Planilhas orçamentárias das obras — alimentam a coluna Item de Orçamento. */
+  const [orcamentos, setOrcamentos] = useState<Orcamento[]>([]);
   const [disponibilidades, setDisponibilidades] = useState<
     Record<number, DisponibilidadeOrcamentariaResultado>
   >({});
@@ -335,7 +346,7 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
 
     (async () => {
       setLoadingBase(true);
-      const [pesList, pcList, ccList, ccTodos, ggList, lgList] = await Promise.all([
+      const [pesList, pcList, ccList, ccTodos, ggList, lgList, orcList] = await Promise.all([
         erpRepository.getPessoas({
           apenasAtivos: true,
           apenasFornecedores: isPagar,
@@ -346,6 +357,7 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
         erpRepository.getCentrosCusto({ apenasAtivos: true }),
         erpRepository.getGruposGestao({ apenasAtivos: true }),
         erpRepository.getLinhasGestao(undefined, { apenasAtivos: true }),
+        erpRepository.getOrcamentos(),
       ]);
 
       if (cancelado) return;
@@ -356,6 +368,7 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
       setCentroCustosTodos(ccTodos);
       setGruposGestao(ggList);
       setLinhasGestao(lgList);
+      setOrcamentos(orcList);
 
       if (tituloId) {
         // ---- ALTERAÇÃO: repõe a tela com o que está gravado ----
@@ -424,7 +437,11 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
             if (rateiosGravados.length > 0) {
               setRateios(
                 rateiosGravados.map((r) => ({
-                  linhaCustoId: r.centroCustoId,
+                  // Obra sem unidades construtivas é o próprio destino gravado:
+                  // nesse caso `obraId` volta vazio do banco (parent_id nulo).
+                  obraId: r.obraId || r.centroCustoId,
+                  unidadeId: r.centroCustoId,
+                  orcamentoItemId: r.orcamentoItemId,
                   percentualStr: r.percentual.toFixed(2).replace('.', ','),
                   valorReais: formatCentavos(
                     Math.round((t.valorBrutoCentavos * r.percentual) / 100)
@@ -682,57 +699,130 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
     );
   }, [valorLiquidoCentavos]);
 
-  /*
-   * Coluna "Centro de Custo" do rateio: os nós de topo da árvore.
+  /**
+   * Obras que a Apropriação oferece: as das Linhas de Gestão alocadas na aba
+   * anterior.
    *
-   * Antes saía de `centroCustos`, que vem de getCentroCustosFolhas() — só os
-   * lançáveis. Um Centro de Custo que já tem Linhas deixa de ser lançável (é a
-   * regra do cadastro), então nenhum deles entrava na lista e o select ficava
-   * apenas com o placeholder. Por isso lê da árvore completa.
+   * É o elo entre as duas abas. Cada Linha de Gestão carrega uma obra vinculada
+   * no seu cadastro; alocar a linha no título é o que traz a obra para cá. Linha
+   * sem obra vinculada simplesmente não contribui com nenhuma opção.
    */
-  const centrosCusto = useMemo(() => {
-    const idsComLinhas = new Set(centroCustosTodos.map((c) => c.parentId).filter(Boolean));
-    // Raízes (inclusive o "Não alocado", que é raiz e lançável) e qualquer nó
-    // intermediário que já tenha Linhas penduradas.
-    return centroCustosTodos.filter((c) => !c.parentId || idsComLinhas.has(c.id));
-  }, [centroCustosTodos]);
+  const obrasDisponiveis = useMemo(() => {
+    const idsObras = new Set(
+      rateiosGestao
+        .map((r) => linhasGestao.find((l) => l.id === r.linhaGestaoId)?.centroCustoId)
+        .filter((id): id is string => !!id)
+    );
 
-  /** Linhas de custo — os nós que aceitam lançamento. */
-  const linhasCusto = useMemo(() => {
-    return centroCustos.filter((c) => c.aceitaLancamento || !!c.parentId || c.nivel > 1);
-  }, [centroCustos]);
+    /*
+     * A obra já gravada no título entra na lista mesmo que a linha de gestão
+     * dela não tenha mais vínculo com obra.
+     *
+     * Sem isto, abrir um título antigo mostrava o combo de Obra em branco: o
+     * valor gravado não estava entre as opções, o campo parecia vazio, a
+     * checagem de pendência (que olha `r.obraId`, preenchido) não reclamava, e
+     * salvar de novo regravava a apropriação com a obra perdida.
+     */
+    for (const r of rateios) {
+      if (r.obraId) idsObras.add(r.obraId);
+    }
 
-  /** Conta contábil efetiva da linha: a própria, ou a do título quando não houver. */
-  const planoDaLinha = (r: ItemRateioState) => r.planoContaId || planoContaId;
+    return centroCustosTodos.filter((c) => idsObras.has(c.id));
+  }, [rateiosGestao, linhasGestao, centroCustosTodos, rateios]);
 
   /**
-   * Plano de contas do título = o da linha de rateio de maior valor.
+   * Unidades Construtivas de uma obra.
+   *
+   * Obra sem unidades cadastradas recebe o lançamento nela mesma — é o que
+   * mantém o título lançável enquanto a árvore da obra não foi detalhada.
+   */
+  const unidadesDaObra = (obraId: string) => {
+    if (!obraId) return [];
+    const filhos = centroCustosTodos.filter((c) => c.parentId === obraId);
+    if (filhos.length > 0) return filhos;
+    return centroCustosTodos.filter((c) => c.id === obraId);
+  };
+
+  /**
+   * Orçamento vigente da obra: o aprovado; sem aprovado, a versão mais alta.
+   * Orçamento encerrado não entra — apropriar contra ele seria lançar em obra
+   * cujo orçamento já foi fechado.
+   */
+  const orcamentoDaObra = (obraId: string): Orcamento | null => {
+    const daObra = orcamentos.filter((o) => o.centroCustoId === obraId && o.status !== 'encerrado');
+    if (daObra.length === 0) return null;
+    return daObra.reduce((a, b) => {
+      const aprovA = a.status === 'aprovado' ? 1 : 0;
+      const aprovB = b.status === 'aprovado' ? 1 : 0;
+      if (aprovA !== aprovB) return aprovB > aprovA ? b : a;
+      return b.versao > a.versao ? b : a;
+    });
+  };
+
+  /**
+   * Itens de orçamento oferecidos para (obra, unidade).
+   *
+   * Item sem unidade construtiva vale para a obra inteira; item com unidade só
+   * aparece na sua.
+   */
+  const itensDaUnidade = (obraId: string, unidadeId: string): OrcamentoItem[] => {
+    const orc = orcamentoDaObra(obraId);
+    if (!orc) return [];
+    return orc.itens.filter((i) => !i.centroCustoId || i.centroCustoId === unidadeId);
+  };
+
+  /** Índice de itens por id, para ler o item de uma linha já escolhida. */
+  const itemOrcamentoPorId = useMemo(() => {
+    const mapa = new Map<string, OrcamentoItem>();
+    for (const o of orcamentos) {
+      for (const i of o.itens) mapa.set(i.id, i);
+    }
+    return mapa;
+  }, [orcamentos]);
+
+  const rotuloItemOrcamento = (i: OrcamentoItem) =>
+    `${i.codigo ? `${i.codigo} - ` : ''}${i.descricao || i.planoContaNome}`;
+
+  /**
+   * Plano de contas do título = o do item de orçamento da linha de maior valor.
+   *
+   * A tela não mostra mais plano de contas, mas o banco continua gravando —
+   * DRE, dashboard e BI agrupam por ele. Quem define passa a ser o Item de
+   * Orçamento escolhido, que já carrega o seu plano.
    */
   const planoContaDominante = (() => {
-    const comPlano = rateios.filter((r) => r.planoContaId);
-    if (comPlano.length > 0) {
-      return comPlano.reduce((a, b) =>
-        parseCentavos(b.valorReais) > parseCentavos(a.valorReais) ? b : a
-      ).planoContaId;
+    const comItem = rateios
+      .map((r) => ({ r, item: r.orcamentoItemId ? itemOrcamentoPorId.get(r.orcamentoItemId) : undefined }))
+      .filter((x) => !!x.item?.planoContaId);
+
+    if (comItem.length > 0) {
+      const maior = comItem.reduce((a, b) =>
+        parseCentavos(b.r.valorReais) > parseCentavos(a.r.valorReais) ? b : a
+      );
+      return maior.item!.planoContaId;
     }
     return planoContaId || (planoContasDisponiveis.length > 0 ? planoContasDisponiveis[0].id : '');
   })();
 
+  /** Primeira unidade da obra — o destino padrão ao criar/trocar uma linha. */
+  const unidadePadrao = (obraId: string) => unidadesDaObra(obraId)[0]?.id || '';
+
   const handleAddRateio = () => {
-    if (centroCustos.length === 0) return;
+    if (obrasDisponiveis.length === 0) return;
     const restante = Math.max(0, Number((100 - somaPercentualRateio).toFixed(2)));
     const percStr = restante > 0 ? restante.toFixed(2).replace('.', ',') : '0,00';
     const valStr = formatCentavos(Math.round((valorLiquidoCentavos * restante) / 100));
 
-    const primeiraLinha = linhasCusto[0] || centroCustos[0];
-    const primeiroCentro = primeiraLinha?.parentId || (centrosCusto[0]?.id || '');
+    // Só pré-seleciona a obra quando há uma única possibilidade: com várias, a
+    // escolha é do usuário — chutar uma esconderia a decisão dentro do rateio.
+    const obraId = obrasDisponiveis.length === 1 ? obrasDisponiveis[0].id : '';
 
     setRateios((prev) => [
       ...prev,
       {
-        centroCustoId: primeiroCentro,
-        linhaCustoId: primeiraLinha?.id || '',
-        planoContaId: planoContasDisponiveis[0]?.id || '',
+        obraId,
+        unidadeId: obraId ? unidadePadrao(obraId) : '',
+        orcamentoItemId: undefined,
         percentualStr: percStr,
         valorReais: valStr,
       },
@@ -746,31 +836,27 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
 
   const handleRateioChange = (
     idx: number,
-    campo: 'centroCustoId' | 'linhaCustoId' | 'linhaGestaoId' | 'planoContaId',
+    campo: 'obraId' | 'unidadeId' | 'orcamentoItemId',
     valor: string
   ) => {
     setRateios((prev) => {
       const copy = [...prev];
-      const item = { ...copy[idx], [campo]: valor };
+      const item: ItemRateioState = { ...copy[idx], [campo]: valor };
 
-      if (campo === 'centroCustoId') {
-        const linhasDoCentro = linhasCusto.filter((c) => c.parentId === valor);
-        if (linhasDoCentro.length > 0) {
-          item.linhaCustoId = linhasDoCentro[0].id;
-        } else {
-          /*
-           * Sem linhas, o lançamento cai no próprio Centro de Custo — mas só se
-           * ele for lançável. Um agrupador aqui gravaria rateio num nó que o
-           * banco recusa; melhor deixar o campo vazio e exigir a escolha.
-           */
-          const ehLancavel = linhasCusto.some((c) => c.id === valor);
-          item.linhaCustoId = ehLancavel ? valor : '';
-        }
-      } else if (campo === 'linhaCustoId') {
-        const linhaSel = centroCustos.find((c) => c.id === valor);
-        if (linhaSel?.parentId) {
-          item.centroCustoId = linhaSel.parentId;
-        }
+      if (campo === 'obraId') {
+        // Trocou a obra: unidade e item da obra anterior não valem mais.
+        item.unidadeId = unidadePadrao(valor);
+        item.orcamentoItemId = undefined;
+      } else if (campo === 'unidadeId') {
+        /*
+         * Item preso à unidade antiga precisa cair. Itens sem unidade valem para
+         * a obra inteira e sobrevivem à troca — por isso a checagem consulta a
+         * lista da unidade nova em vez de limpar sempre.
+         */
+        const aindaVale = itensDaUnidade(item.obraId, valor).some((i) => i.id === item.orcamentoItemId);
+        if (!aindaVale) item.orcamentoItemId = undefined;
+      } else if (campo === 'orcamentoItemId') {
+        item.orcamentoItemId = valor || undefined;
       }
 
       copy[idx] = item;
@@ -778,16 +864,15 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
     });
   };
 
-  /** Devolve a apropriação ao padrão do título: a obra escolhida no cadastro, 100%. */
+  /** Joga 100% na primeira obra disponível — o caso comum de título de uma obra só. */
   const handleRateioPadrao = () => {
-    const ccId = centroCustoTituloId;
-    if (!ccId) return;
-    const ccSel = centroCustos.find((c) => c.id === ccId);
+    const obra = obrasDisponiveis[0];
+    if (!obra) return;
     setRateios([
       {
-        centroCustoId: ccSel?.parentId || '',
-        linhaCustoId: ccId,
-        planoContaId: planoContasDisponiveis[0]?.id || '',
+        obraId: obra.id,
+        unidadeId: unidadePadrao(obra.id),
+        orcamentoItemId: undefined,
         percentualStr: '100,00',
         valorReais: formatCentavos(valorLiquidoCentavos),
       },
@@ -853,7 +938,7 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
      *   if (isPagar) {                       // <- orçamento é conceito de DESPESA
      *     for (const r of rateios) {
      *       res[i] = await erpRepository.validarDisponibilidadeOrcamentaria(
-     *         r.linhaCustoId, r.planoContaId || planoContaId, parseCentavos(r.valorReais));
+     *         r.unidadeId, planoDoItem(r), parseCentavos(r.valorReais));
      *     }
      *   }
      *
@@ -922,11 +1007,20 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
 
     const apropPend: string[] = [];
     if (rateios.length > 0 && !isRateioValido)
-      apropPend.push('A apropriação por centro de custo deve somar 100,00%.');
-    // Centro de Custo agrupador sem linhas lançáveis deixa a coluna da direita
-    // vazia; sem esta trava o rateio iria para o banco com o destino em branco.
-    if (rateios.some((r) => !r.linhaCustoId))
-      apropPend.push('Há linha de apropriação sem linha de custo informada.');
+      apropPend.push('A apropriação por obra deve somar 100,00%.');
+    // Sem unidade construtiva o rateio iria para o banco com o destino em branco.
+    if (rateios.some((r) => !r.obraId))
+      apropPend.push('Há linha de apropriação sem obra informada.');
+    if (rateios.some((r) => r.obraId && !r.unidadeId))
+      apropPend.push('Há linha de apropriação sem unidade construtiva informada.');
+    /*
+     * Item de orçamento só é exigido onde existe orçamento para escolher. Exigir
+     * sempre travaria o lançamento em obra que ainda não teve planilha
+     * cadastrada; não exigir nunca deixaria passar em branco justamente onde o
+     * orçamento existe — que é o ponto da aba.
+     */
+    if (rateios.some((r) => !r.orcamentoItemId && itensDaUnidade(r.obraId, r.unidadeId).length > 0))
+      apropPend.push('Há linha de apropriação sem item de orçamento informado.');
     if (temAlgumEstouro && !confirmarEstouroCheck)
       apropPend.push('Confirme o estouro de orçamento para prosseguir.');
 
@@ -943,6 +1037,10 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
     rateiosGestao,
     isRateioValido,
     rateios,
+    // A pendência de item de orçamento consulta as planilhas carregadas: sem
+    // esta dependência, a checagem ficaria presa ao array vazio do primeiro
+    // render e nunca cobraria o item.
+    orcamentos,
     temAlgumEstouro,
     confirmarEstouroCheck,
   ]);
@@ -1078,35 +1176,40 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
       items: INDEXADORES,
       onSelect: (i) => setIndexador(i),
     },
-    centrocusto: {
-      title: 'Centros de custo',
-      items: centroCustos.map((cc) => ({
-        id: cc.id,
-        codigo: cc.codigo,
-        nome: cc.nome,
-        extra: cc.tipo.toUpperCase(),
-      })),
-      extraHeader: 'Tipo',
+    unidade: {
+      title: 'Unidades construtivas',
+      items: centroCustosTodos
+        .filter((cc) => !!cc.parentId)
+        .map((cc) => ({
+          id: cc.id,
+          codigo: cc.codigo,
+          nome: cc.nome,
+          extra: centroCustosTodos.find((o) => o.id === cc.parentId)?.nome ?? '',
+        })),
+      extraHeader: 'Obra',
       onSelect: (i) => {
         if (rateioLookupIndex === null) return;
         const copy = [...rateios];
-        copy[rateioLookupIndex] = { ...copy[rateioLookupIndex], linhaCustoId: i.id };
+        const obraId = centroCustosTodos.find((cc) => cc.id === i.id)?.parentId || '';
+        copy[rateioLookupIndex] = { ...copy[rateioLookupIndex], obraId, unidadeId: i.id };
         setRateios(copy);
       },
     },
-    planofinanceiro: {
-      title: 'Plano financeiro',
-      items: planoContasDisponiveis.map((pc) => ({
-        id: pc.id,
-        codigo: pc.codigo,
-        nome: pc.nome,
-        extra: pc.natureza.toUpperCase(),
-      })),
-      extraHeader: 'Natureza',
+    itemorcamento: {
+      title: 'Itens de orçamento',
+      items: orcamentos.flatMap((o) =>
+        o.itens.map((i) => ({
+          id: i.id,
+          codigo: i.codigo || '',
+          nome: i.descricao || i.planoContaNome,
+          extra: o.centroCustoNome,
+        }))
+      ),
+      extraHeader: 'Obra',
       onSelect: (i) => {
         if (rateioLookupIndex === null) return;
         const copy = [...rateios];
-        copy[rateioLookupIndex] = { ...copy[rateioLookupIndex], planoContaId: i.id };
+        copy[rateioLookupIndex] = { ...copy[rateioLookupIndex], orcamentoItemId: i.id };
         setRateios(copy);
       },
     },
@@ -1122,12 +1225,15 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
 
   /* ---------------- cascata da hierarquia ---------------- */
 
-  /** A obra escolhida no cadastro vira a apropriação padrão: um centro, 100%. */
+  /** A obra escolhida no cadastro vira a apropriação padrão: uma linha, 100%. */
   const handleCentroCustoTituloChange = (novoCcId: string) => {
     setCentroCustoTituloId(novoCcId);
+    const no = centroCustosTodos.find((c) => c.id === novoCcId);
     setRateios([
       {
-        linhaCustoId: novoCcId,
+        obraId: no?.parentId || novoCcId,
+        unidadeId: novoCcId,
+        orcamentoItemId: undefined,
         percentualStr: '100,00',
         valorReais: formatCentavos(valorLiquidoCentavos),
       },
@@ -1175,11 +1281,13 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
       const rateiosFinal =
         rateios.length > 0
           ? rateios.map((r) => ({
-              // A linha de custo é o destino gravado; no domínio/banco o campo
-              // continua se chamando centroCustoId / centro_custo_id.
-              centroCustoId: r.linhaCustoId,
-              linhaGestaoId: r.linhaGestaoId || undefined,
-              planoContaId: r.planoContaId || planoContaId || undefined,
+              // A Unidade Construtiva é o destino gravado; no domínio/banco o
+              // campo continua se chamando centroCustoId / centro_custo_id.
+              centroCustoId: r.unidadeId,
+              orcamentoItemId: r.orcamentoItemId,
+              // O repositório prefere o plano do item de orçamento; este aqui é
+              // só o fallback de quem apropriou em obra ainda sem planilha.
+              planoContaId: planoContaId || undefined,
               percentual: parseFloat(r.percentualStr.replace(',', '.')) || 0,
               valorCentavos: parseCentavos(r.valorReais),
             }))
@@ -1883,7 +1991,7 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
           {/* ============================================================ */}
           {aba === 'apropria-obra' && (
             <ErpSection
-              title="Apropriação por Centro de Custo"
+              title="Apropriação por Obra — Unidade Construtiva & Item de Orçamento"
               aside={
                 <span
                   className={`inline-flex items-center gap-1.5 px-2 py-0.5 border text-[12px] ${
@@ -1901,13 +2009,15 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
                 </span>
               }
             >
-              {centroCustos.length === 0 && (
+              {obrasDisponiveis.length === 0 && (
                 <div className="mb-3 flex items-start gap-2 border border-amber-300 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                   <span>
-                    <strong>Nenhum centro de custo disponível.</strong> Todos os botões desta aba
-                    dependem de pelo menos uma obra / centro de custo ativo. Cadastre em{' '}
-                    <strong>Cadastros → Centro de Custos</strong>. Enquanto isso, o título é lançado em &quot;Não alocado&quot;.
+                    <strong>Nenhuma obra disponível.</strong> As obras desta aba vêm das Linhas de
+                    Gestão alocadas em <strong>Alocação de Títulos</strong>: cada linha carrega uma
+                    obra vinculada no seu cadastro. Aloque uma linha de gestão que tenha obra, ou
+                    vincule a obra em <strong>Cadastros → Linhas de Gestão</strong>. Enquanto isso, o
+                    título é lançado em &quot;Não alocado&quot;.
                   </span>
                 </div>
               )}
@@ -1926,7 +2036,7 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
                 <button
                   type="button"
                   onClick={handleAddRateio}
-                  disabled={centroCustos.length === 0}
+                  disabled={obrasDisponiveis.length === 0}
                   className="px-3 py-1.5 border border-erp-rule bg-white text-[12px] font-semibold text-ink-primary hover:bg-black/[0.03] disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   + Adicionar linha
@@ -1942,7 +2052,7 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
                 <button
                   type="button"
                   onClick={handleRateioPadrao}
-                  disabled={!centroCustoTituloId}
+                  disabled={obrasDisponiveis.length === 0}
                   className="px-3 py-1.5 border border-erp-rule bg-white text-[12px] font-semibold text-ink-primary hover:bg-black/[0.03] disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   Rateio padrão (100%)
@@ -1954,13 +2064,13 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
                   <thead>
                     <tr className="bg-black/[0.03] text-erp-label">
                       <th className="px-2 py-1.5 text-left font-semibold border-b border-erp-rule">
-                        Centro de Custo
+                        Nome da Obra
                       </th>
                       <th className="px-2 py-1.5 text-left font-semibold border-b border-erp-rule">
-                        Linha de Centro de Custo
+                        Unidade Construtiva
                       </th>
                       <th className="px-2 py-1.5 text-left font-semibold border-b border-erp-rule">
-                        Plano Financeiro
+                        Item Orçamento
                       </th>
                       <th className="px-2 py-1.5 text-right font-semibold border-b border-erp-rule w-[100px]">
                         %
@@ -1980,30 +2090,21 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
                       </tr>
                     ) : (
                       rateios.map((r, idx) => {
-                        const linhaAtual = centroCustos.find((c) => c.id === r.linhaCustoId);
-                        const centroCustoIdEfetivo = r.centroCustoId || linhaAtual?.parentId || '';
-
-                        // Um Centro de Custo sem linhas ("Não alocado", p. ex.) é ele
-                        // próprio o destino do lançamento — por isso entra na lista.
-                        const opcoesLinhas = centroCustoIdEfetivo
-                          ? linhasCusto.filter(
-                              (c) =>
-                                c.parentId === centroCustoIdEfetivo ||
-                                c.id === centroCustoIdEfetivo
-                            )
-                          : linhasCusto;
+                        const unidades = unidadesDaObra(r.obraId);
+                        const itens = itensDaUnidade(r.obraId, r.unidadeId);
+                        const temOrcamento = !!orcamentoDaObra(r.obraId);
 
                         return (
                           <tr key={idx}>
-                            {/* 1. Centro de Custo */}
+                            {/* 1. Nome da Obra */}
                             <td className="px-2 py-1 border-b border-erp-rule">
                               <select
-                                value={centroCustoIdEfetivo}
-                                onChange={(e) => handleRateioChange(idx, 'centroCustoId', e.target.value)}
+                                value={r.obraId}
+                                onChange={(e) => handleRateioChange(idx, 'obraId', e.target.value)}
                                 className={`${erpField} w-full`}
                               >
-                                <option value="">Selecione o Centro de Custo...</option>
-                                {centrosCusto.map((c) => (
+                                <option value="">Selecione a Obra...</option>
+                                {obrasDisponiveis.map((c) => (
                                   <option key={c.id} value={c.id}>
                                     {c.codigo} - {c.nome}
                                   </option>
@@ -2011,18 +2112,20 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
                               </select>
                             </td>
 
-                            {/* 2. Linha de Centro de Custo */}
+                            {/* 2. Unidade Construtiva */}
                             <td className="px-2 py-1 border-b border-erp-rule">
                               <select
-                                value={r.linhaCustoId}
-                                onChange={(e) => handleRateioChange(idx, 'linhaCustoId', e.target.value)}
-                                className={`${erpField} w-full`}
+                                value={r.unidadeId}
+                                disabled={!r.obraId}
+                                onChange={(e) => handleRateioChange(idx, 'unidadeId', e.target.value)}
+                                className={`${erpField} w-full disabled:opacity-50`}
                               >
-                                <option value="">Selecione a Linha...</option>
-                                {/* Sem o "cai para todas as folhas" de antes: com a coluna
-                                    da esquerda funcionando, listar Linhas de outro Centro
-                                    de Custo só permitia montar um rateio incoerente. */}
-                                {opcoesLinhas.map((c) => (
+                                <option value="">
+                                  {r.obraId ? 'Selecione a Unidade...' : 'Escolha a obra antes'}
+                                </option>
+                                {/* Obra sem unidades cadastradas aparece aqui como a
+                                    própria opção: é ela que recebe o lançamento. */}
+                                {unidades.map((c) => (
                                   <option key={c.id} value={c.id}>
                                     {c.codigo} - {c.nome}
                                   </option>
@@ -2030,17 +2133,33 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
                               </select>
                             </td>
 
-                            {/* 3. Plano Financeiro */}
+                            {/* 3. Item Orçamento */}
                             <td className="px-2 py-1 border-b border-erp-rule">
                               <select
-                                value={planoDaLinha(r)}
-                                onChange={(e) => handleRateioChange(idx, 'planoContaId', e.target.value)}
-                                className={`${erpField} w-full`}
+                                value={r.orcamentoItemId ?? ''}
+                                disabled={!r.unidadeId || itens.length === 0}
+                                onChange={(e) => handleRateioChange(idx, 'orcamentoItemId', e.target.value)}
+                                title={
+                                  r.unidadeId && itens.length === 0
+                                    ? temOrcamento
+                                      ? 'O orçamento desta obra não tem itens para esta unidade construtiva.'
+                                      : 'Esta obra ainda não tem orçamento cadastrado. Cadastre em Financeiro → Orçamentos.'
+                                    : undefined
+                                }
+                                className={`${erpField} w-full disabled:opacity-50`}
                               >
-                                <option value="">Padrão do título</option>
-                                {planoContasDisponiveis.map((p) => (
-                                  <option key={p.id} value={p.id}>
-                                    {p.codigo} - {p.nome}
+                                <option value="">
+                                  {!r.unidadeId
+                                    ? 'Escolha a unidade antes'
+                                    : itens.length === 0
+                                      ? temOrcamento
+                                        ? 'Sem itens para esta unidade'
+                                        : 'Obra sem orçamento cadastrado'
+                                      : 'Selecione o Item...'}
+                                </option>
+                                {itens.map((i) => (
+                                  <option key={i.id} value={i.id}>
+                                    {rotuloItemOrcamento(i)}
                                   </option>
                                 ))}
                               </select>
@@ -2114,7 +2233,7 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
               {!isRateioValido && (
                 <p className="mt-2 flex items-center gap-1.5 text-[12px] text-erp-req">
                   <AlertTriangle className="w-3.5 h-3.5" />
-                  A apropriação por centro de custo deve somar 100,00%.
+                  A apropriação por obra deve somar 100,00%.
                 </p>
               )}
             </ErpSection>

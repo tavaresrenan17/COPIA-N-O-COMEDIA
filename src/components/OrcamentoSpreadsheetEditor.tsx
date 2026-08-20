@@ -25,7 +25,10 @@ export interface GridRowPeriodo {
 
 export interface GridRowItem {
   id: string;
+  /** Código do item na planilha ("1.1.3"). É por ele que a Apropriação o exibe. */
+  codigo: string;
   planoContaId: string;
+  /** Unidade Construtiva do item; vazio = item vale para a obra inteira. */
   centroCustoId?: string;
   descricao: string;
   quantidade: string;
@@ -42,10 +45,14 @@ interface OrcamentoSpreadsheetEditorProps {
   dataInicio: string; // "2026-01-01"
   dataFim: string; // "2026-12-31"
   planosNivel2: PlanoConta[];
+  /** Unidades Construtivas da obra deste orçamento (filhas dela na árvore). */
   subCentrosCusto?: CentroCusto[];
   initialItens?: any[];
   isReadonly?: boolean;
   onSave: (itens: {
+    /** Id do item já gravado; ausente/não-UUID = linha nova. */
+    id?: string;
+    codigo?: string;
     planoContaId: string;
     centroCustoId?: string;
     descricao?: string;
@@ -63,10 +70,16 @@ function gerarListaMeses(dataInicio: string, dataFim: string) {
   const meses: { mesReferencia: string; rotuloMes: string }[] = [];
   if (!dataInicio || !dataFim) return meses;
 
-  let cur = new Date(dataInicio);
+  /*
+   * O sufixo T00:00:00 é obrigatório: new Date("2026-01-01") é lido como UTC e,
+   * em fuso negativo (BRT = UTC-3), volta para 31/12/2025 no horário local — a
+   * planilha de um orçamento de janeiro nascia com uma coluna 12/25 a mais e
+   * gravava o período no mês errado. Com o sufixo, a data é lida como local.
+   */
+  let cur = new Date(dataInicio + "T00:00:00");
   // Normalizar para o dia 1 do mês
   cur = new Date(cur.getFullYear(), cur.getMonth(), 1);
-  const end = new Date(dataFim);
+  const end = new Date(dataFim + "T00:00:00");
 
   while (cur <= end) {
     const yyyy = cur.getFullYear();
@@ -146,6 +159,7 @@ export function OrcamentoSpreadsheetEditor({
 
         return {
           id: it.id || `row-${Date.now()}-${idx}`,
+          codigo: it.codigo || '',
           planoContaId: it.planoContaId || it.planoContaNivel2Id || (planosNivel2[0]?.id || ''),
           centroCustoId: it.centroCustoId,
           descricao: it.descricao || '',
@@ -177,7 +191,11 @@ export function OrcamentoSpreadsheetEditor({
 
     return {
       id: `row-${Date.now()}-${Math.random()}`,
+      codigo: '',
       planoContaId: pcDef,
+      // Sem unidade por padrão: o item vale para a obra inteira até que o
+      // usuário o prenda a uma unidade construtiva.
+      centroCustoId: undefined,
       descricao: '',
       quantidade: '',
       unidade: 'un',
@@ -354,6 +372,13 @@ export function OrcamentoSpreadsheetEditor({
     setSaving(true);
     try {
       const payload = rows.map(r => ({
+        /*
+         * Devolver o id é o que faz o repositório ATUALIZAR o item em vez de
+         * apagar e recriar. Sem ele, cada salvamento geraria um id novo e a
+         * apropriação de títulos que aponta para o item ficaria órfã.
+         */
+        id: r.id,
+        codigo: r.codigo.trim() || undefined,
         planoContaId: r.planoContaId,
         centroCustoId: r.centroCustoId || undefined,
         descricao: r.descricao,
@@ -448,6 +473,8 @@ export function OrcamentoSpreadsheetEditor({
         <table className="w-full text-left text-xs border-collapse">
           <thead>
             <tr className="bg-surface-muted border-b border-black/10 text-[11px] font-bold text-ink-muted uppercase sticky top-0 z-10">
+              <th className="p-2.5 w-24">Código</th>
+              <th className="p-2.5 min-w-[170px]">Unidade Construtiva</th>
               <th className="p-2.5 min-w-[200px]">Plano Financeiro (Nível 2)</th>
               <th className="p-2.5 min-w-[160px]">Descrição do Item</th>
               <th className="p-2.5 w-20 text-right">Qtd</th>
@@ -472,7 +499,49 @@ export function OrcamentoSpreadsheetEditor({
                   !row.isValid ? 'bg-rose-50/50' : rIdx % 2 === 0 ? 'bg-surface' : 'bg-surface-muted/30'
                 }`}
               >
-                {/* 1. Plano de Contas Nível 2 */}
+                {/* 1. Código do item */}
+                <td className="p-2">
+                  {isReadonly ? (
+                    <span className="font-mono font-bold text-ink-primary">{row.codigo || '-'}</span>
+                  ) : (
+                    <input
+                      type="text"
+                      placeholder="1.1.3"
+                      value={row.codigo}
+                      onChange={(e) => handleRowFieldChange(row.id, 'codigo', e.target.value)}
+                      className="w-full bg-surface border border-black/10 rounded-lg px-2 py-1 text-xs font-mono font-bold text-ink-primary focus:ring-2 focus:ring-brand"
+                    />
+                  )}
+                </td>
+
+                {/* 2. Unidade Construtiva */}
+                <td className="p-2">
+                  {isReadonly ? (
+                    <span className="text-ink-primary">
+                      {subCentrosCusto.find(c => c.id === row.centroCustoId)?.nome || 'Toda a obra'}
+                    </span>
+                  ) : (
+                    <select
+                      value={row.centroCustoId || ''}
+                      onChange={(e) => handleRowFieldChange(row.id, 'centroCustoId', e.target.value)}
+                      className="w-full bg-surface border border-black/10 rounded-lg px-2 py-1 text-xs font-semibold text-ink-primary focus:ring-2 focus:ring-brand"
+                      title={
+                        subCentrosCusto.length === 0
+                          ? 'Esta obra ainda não tem unidades construtivas cadastradas. Cadastre-as como filhas da obra em Cadastros → Centro de Custos.'
+                          : undefined
+                      }
+                    >
+                      {/* Item sem unidade aparece na Apropriação de qualquer
+                          unidade da obra — é o caso de custo indireto. */}
+                      <option value="">Toda a obra</option>
+                      {subCentrosCusto.map(c => (
+                        <option key={c.id} value={c.id}>{c.codigo} - {c.nome}</option>
+                      ))}
+                    </select>
+                  )}
+                </td>
+
+                {/* 3. Plano de Contas Nível 2 */}
                 <td className="p-2">
                   {isReadonly ? (
                     <span className="font-bold text-ink-primary font-mono">
@@ -634,7 +703,11 @@ export function OrcamentoSpreadsheetEditor({
           {/* RODAPÉ COM TOTAIS CONSOLIDADOS */}
           <tfoot>
             <tr className="bg-surface-muted border-t-2 border-black/10 font-mono font-bold text-xs">
-              <td colSpan={5} className="p-3 text-right uppercase text-ink-muted">
+              {/* 7 = Código, Unidade Construtiva, Plano Financeiro, Descrição, Qtd,
+                  Unid, Vlr Unit. Ficou em 5 quando as duas primeiras colunas
+                  foram acrescentadas, e todos os totais saíam duas colunas à
+                  esquerda do seu cabeçalho. */}
+              <td colSpan={7} className="p-3 text-right uppercase text-ink-muted">
                 Totais Consolidados:
               </td>
               <td className="p-3 text-right text-brand text-sm">

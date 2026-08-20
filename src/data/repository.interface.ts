@@ -85,7 +85,10 @@ export interface TituloInput {
     valorCentavos: number;
     observacao?: string;
     rateios: {
+      /** Unidade Construtiva (ou a própria obra, quando ela não tem unidades). */
       centroCustoId: string;
+      /** Item de orçamento apropriado nesta linha. */
+      orcamentoItemId?: string;
       /** Plano de contas específico da linha de rateio; sem ele, herda o do título. */
       planoContaId?: string;
       percentual: number;
@@ -238,7 +241,9 @@ export interface IErpRepository {
     dataFim: string;
     observacao?: string;
     itens: {
+      codigo?: string;
       planoContaId: string;
+      /** Unidade Construtiva do item (nó filho da obra). */
       centroCustoId?: string;
       descricao?: string;
       quantidade?: number;
@@ -253,7 +258,9 @@ export interface IErpRepository {
     observacao?: string;
     itens?: {
       id?: string;
+      codigo?: string;
       planoContaId: string;
+      /** Unidade Construtiva do item (nó filho da obra). */
       centroCustoId?: string;
       descricao?: string;
       quantidade?: number;

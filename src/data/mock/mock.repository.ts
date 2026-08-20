@@ -393,10 +393,14 @@ export class MockErpRepository implements IErpRepository {
     }
     const proximoSeq = mockLinhasGestao.reduce((m, l) => Math.max(m, parseInt((l.codigo || '').replace(/\D/g, ''), 10) || 0), 0) + 1;
     const codigoSequencial = String(proximoSeq).padStart(3, '0');
+    const obra = data.centroCustoId ? mockCentrosCusto.find(c => c.id === data.centroCustoId) : null;
     const newL: LinhaGestao = {
       id: `lg-${Date.now()}`,
       grupoGestaoId: data.grupoGestaoId,
       grupoGestaoNome: grupo?.nome,
+      centroCustoId: data.centroCustoId,
+      centroCustoCodigo: obra?.codigo,
+      centroCustoNome: obra?.nome,
       codigo: data.codigo || codigoSequencial,
       nome: data.nome,
       descricao: data.descricao,
@@ -417,10 +421,15 @@ export class MockErpRepository implements IErpRepository {
       grupo = grupos.find(g => g.id === data.grupoGestaoId) || null;
     }
 
+    const obra = data.centroCustoId ? mockCentrosCusto.find(c => c.id === data.centroCustoId) : null;
+
     mockLinhasGestao[idx] = {
       ...mockLinhasGestao[idx],
       ...data,
       grupoGestaoNome: grupo ? grupo.nome : mockLinhasGestao[idx].grupoGestaoNome,
+      // Sem isto o nome da obra continuaria o da obra anterior depois da troca.
+      centroCustoCodigo: 'centroCustoId' in data ? obra?.codigo : mockLinhasGestao[idx].centroCustoCodigo,
+      centroCustoNome: 'centroCustoId' in data ? obra?.nome : mockLinhasGestao[idx].centroCustoNome,
       updatedAt: new Date().toISOString().split('T')[0],
     };
     return mockLinhasGestao[idx];
@@ -1782,10 +1791,12 @@ export class MockErpRepository implements IErpRepository {
       return {
         id: `item-${Date.now()}-${idx}`,
         orcamentoId: id,
+        codigo: (it as { codigo?: string }).codigo,
         planoContaId: it.planoContaId,
         planoContaCodigo: pc?.codigo || '2.1',
         planoContaNome: pc?.nome || 'Despesa',
         centroCustoId: it.centroCustoId,
+        centroCustoCodigo: ccItem?.codigo,
         centroCustoNome: ccItem?.nome,
         descricao: it.descricao,
         quantidade: it.quantidade,
@@ -1887,10 +1898,12 @@ export class MockErpRepository implements IErpRepository {
         return {
           id: it.id || `item-${Date.now()}-${itemIdx}`,
           orcamentoId: target.id,
+          codigo: (it as { codigo?: string }).codigo,
           planoContaId: it.planoContaId,
           planoContaCodigo: pc?.codigo || '2.1',
           planoContaNome: pc?.nome || 'Despesa',
           centroCustoId: it.centroCustoId,
+          centroCustoCodigo: ccItem?.codigo,
           centroCustoNome: ccItem?.nome,
           descricao: it.descricao,
           quantidade: it.quantidade,

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { erpRepository, GrupoGestao, LinhaGestao } from '@/data';
+import { erpRepository, CentroCusto, GrupoGestao, LinhaGestao } from '@/data';
 import {
   ListFilter,
   Plus,
@@ -23,6 +23,8 @@ export default function LinhasGestaoPage() {
   const toast = useToast();
   const [linhas, setLinhas] = useState<LinhaGestao[]>([]);
   const [grupos, setGrupos] = useState<GrupoGestao[]>([]);
+  /** Obras: os nós de topo da árvore de centro de custo. */
+  const [obras, setObras] = useState<CentroCusto[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [grupoFiltroId, setGrupoFiltroId] = useState<string>('');
@@ -31,6 +33,7 @@ export default function LinhasGestaoPage() {
   const [modalAberto, setModalAberto] = useState(false);
   const [linhaEditando, setLinhaEditando] = useState<LinhaGestao | null>(null);
   const [grupoGestaoId, setGrupoGestaoId] = useState('');
+  const [centroCustoId, setCentroCustoId] = useState('');
   const [codigo, setCodigo] = useState('');
   const [nome, setNome] = useState('');
   const [descricao, setDescricao] = useState('');
@@ -43,12 +46,15 @@ export default function LinhasGestaoPage() {
 
   const carregarDados = async () => {
     setLoading(true);
-    const [gList, lList] = await Promise.all([
+    const [gList, lList, ccList] = await Promise.all([
       erpRepository.getGruposGestao({ apenasAtivos: false }),
       erpRepository.getLinhasGestao(undefined, { apenasAtivos: false }),
+      erpRepository.getCentrosCusto({ apenasAtivos: true }),
     ]);
     setGrupos(gList);
     setLinhas(lList);
+    // Só as raízes: unidade construtiva é filha da obra, não é obra.
+    setObras(ccList.filter((c) => !c.parentId));
     setLoading(false);
   };
 
@@ -60,6 +66,7 @@ export default function LinhasGestaoPage() {
     setLinhaEditando(null);
     const gruposAtivos = grupos.filter((g) => g.ativo);
     setGrupoGestaoId(gruposAtivos[0]?.id || grupos[0]?.id || '');
+    setCentroCustoId('');
     setCodigo(proximoCodigo(linhas));
     setNome('');
     setDescricao('');
@@ -70,6 +77,7 @@ export default function LinhasGestaoPage() {
   const abrirModalEditar = (l: LinhaGestao) => {
     setLinhaEditando(l);
     setGrupoGestaoId(l.grupoGestaoId);
+    setCentroCustoId(l.centroCustoId || '');
     setCodigo(l.codigo);
     setNome(l.nome);
     setDescricao(l.descricao || '');
@@ -93,6 +101,7 @@ export default function LinhasGestaoPage() {
       if (linhaEditando) {
         await erpRepository.updateLinhaGestao(linhaEditando.id, {
           grupoGestaoId,
+          centroCustoId: centroCustoId || undefined,
           codigo,
           nome,
           descricao,
@@ -104,6 +113,7 @@ export default function LinhasGestaoPage() {
       } else {
         await erpRepository.createLinhaGestao({
           grupoGestaoId,
+          centroCustoId: centroCustoId || undefined,
           codigo,
           nome,
           descricao,
@@ -229,6 +239,7 @@ export default function LinhasGestaoPage() {
               <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
                 <th className="py-3 px-4">Código</th>
                 <th className="py-3 px-4">Grupo de Gestão</th>
+                <th className="py-3 px-4">Obra Vinculada</th>
                 <th className="py-3 px-4">Nome da Linha</th>
                 <th className="py-3 px-4">Descrição</th>
                 <th className="py-3 px-4">Status</th>
@@ -238,13 +249,13 @@ export default function LinhasGestaoPage() {
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-slate-400">
+                  <td colSpan={7} className="py-8 text-center text-slate-400">
                     Carregando linhas de gestão...
                   </td>
                 </tr>
               ) : linhasFiltradas.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-slate-400">
+                  <td colSpan={7} className="py-8 text-center text-slate-400">
                     Nenhuma linha de gestão encontrada.
                   </td>
                 </tr>
@@ -252,6 +263,10 @@ export default function LinhasGestaoPage() {
                 linhasFiltradas.map((l) => {
                   const gPai = grupos.find((g) => g.id === l.grupoGestaoId);
                   const nomeGrupoPai = gPai ? `${gPai.codigo} - ${gPai.nome}` : (l.grupoGestaoNome || '—');
+                  const obra = obras.find((c) => c.id === l.centroCustoId);
+                  const nomeObra = obra
+                    ? `${obra.codigo} - ${obra.nome}`
+                    : (l.centroCustoNome || '');
 
                   return (
                     <tr key={l.id} className="hover:bg-slate-50/80 transition-colors">
@@ -260,6 +275,20 @@ export default function LinhasGestaoPage() {
                         <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 font-bold text-[11px] border border-purple-200">
                           {nomeGrupoPai}
                         </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        {nomeObra ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 font-bold text-[11px] border border-amber-200">
+                            {nomeObra}
+                          </span>
+                        ) : (
+                          <span
+                            className="text-slate-400"
+                            title="Sem obra vinculada: esta linha não oferece obras na aba Apropriação do título."
+                          >
+                            —
+                          </span>
+                        )}
                       </td>
                       <td className="py-3 px-4 font-semibold text-slate-800">{l.nome}</td>
                       <td className="py-3 px-4 text-slate-500">{l.descricao || '—'}</td>
@@ -341,6 +370,27 @@ export default function LinhasGestaoPage() {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Obra Vinculada</label>
+                <select
+                  value={centroCustoId}
+                  onChange={(e) => setCentroCustoId(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-hidden focus:border-indigo-600 font-semibold"
+                >
+                  <option value="">Sem obra vinculada</option>
+                  {obras.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.codigo} - {c.nome}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-[11px] text-slate-500 leading-relaxed">
+                  É esta obra que a aba <strong>Apropriação</strong> do título vai oferecer quando
+                  esta linha for alocada. Sem obra vinculada, a linha não contribui com nenhuma
+                  opção lá.
+                </p>
               </div>
 
               <div>

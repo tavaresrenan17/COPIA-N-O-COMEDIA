@@ -12,6 +12,7 @@ import {
   GrupoGestao,
   LinhaGestao,
   Titulo,
+  TituloRateio,
   Movimento,
   ParcelaView,
   TipoTitulo,
@@ -48,6 +49,25 @@ import {
   DisponibilidadeOrcamentariaResultado,
   GeracaoRetroativaSimulacaoResultado
 } from '../types';
+
+/**
+ * Erro de coluna ausente da migration 09.
+ *
+ * As colunas novas são checadas antes de gravar (`temColuna`) para não derrubar
+ * o insert inteiro em banco desatualizado. Mas simplesmente ignorá-las apagaria
+ * em silêncio uma escolha que o usuário acabou de fazer na tela — foi assim que
+ * o plano de contas por linha de rateio se perdeu antes da migration 08.
+ *
+ * Quando o campo veio preenchido e a coluna não existe, o certo é recusar a
+ * gravação e dizer o que falta.
+ */
+function erroMigration09(oQue: string): Error {
+  return new Error(
+    `${oQue} não pôde ser gravado: este banco ainda não tem a migration 09 ` +
+    '(supabase/migrations/09_obra_unidade_item_orcamento.sql). ' +
+    'Rode-a no Supabase → SQL Editor e tente de novo.'
+  );
+}
 
 function toUuidOrNull(val?: string | null): string | null {
   if (!val) return null;
@@ -142,7 +162,22 @@ export class SupabaseErpRepository implements IErpRepository {
         chave,
         (async () => {
           const { error } = await this.client!.from(tabela).select(coluna).limit(1);
-          return !error;
+          if (!error) return true;
+
+          /*
+           * Só o erro 42703 ("undefined_column") significa que a coluna não
+           * existe. Antes, QUALQUER erro — rede caída, RLS, timeout — era lido
+           * como ausência e ficava memorizado para a sessão inteira. Com as
+           * gravações novas recusando o salvamento quando a coluna falta, uma
+           * falha passageira travaria todo o cadastro até dar F5, dizendo ao
+           * usuário para rodar uma migration que já está aplicada.
+           */
+          const codigo = (error as { code?: string }).code;
+          if (codigo === '42703' || /does not exist/i.test(error.message ?? '')) return false;
+
+          // Erro de outra natureza: não memoriza e assume que a coluna existe.
+          this.colunasConhecidas.delete(chave);
+          return true;
         })()
       );
     }
@@ -746,52 +781,69 @@ export class SupabaseErpRepository implements IErpRepository {
     if (!this.client) return this.fallbackMock.getLinhasGestao(grupoGestaoId, filtro);
     const client = this.client;
     return this.cache.obter(`linha_gestao:${grupoGestaoId ?? ''}:${JSON.stringify(filtro ?? {})}`, async () => {
-    let query = client.from('linha_gestao').select('*, grupo_gestao:grupo_gestao_id (id, codigo, nome)');
+    let query = client.from('linha_gestao').select(await this.selectLinhaGestao());
     if (grupoGestaoId) query = query.eq('grupo_gestao_id', grupoGestaoId);
     if (filtro?.apenasAtivos !== false) query = query.eq('ativo', true);
     const { data } = await query.order('codigo');
     if (!data) return this.fallbackMock.getLinhasGestao(grupoGestaoId, filtro);
 
-    return data.map((l: any) => ({
+    return (data as any[]).map((l: any) => this.mapLinhaGestao(l));
+    });
+  }
+
+  /**
+   * Colunas da Linha de Gestão. A obra vinculada (`centro_custo_id`) só vem com
+   * a migration 09 — pedir o relacionamento antes disso derruba a consulta
+   * inteira e o combo de linhas de gestão fica vazio em todas as telas.
+   */
+  private async selectLinhaGestao(): Promise<string> {
+    const base = '*, grupo_gestao:grupo_gestao_id (id, codigo, nome)';
+    if (!(await this.temColuna('linha_gestao', 'centro_custo_id'))) return base;
+    return `${base}, centro_custo:centro_custo_id (id, codigo, nome)`;
+  }
+
+  private mapLinhaGestao(l: any): LinhaGestao {
+    return {
       id: l.id,
       grupoGestaoId: l.grupo_gestao_id,
       grupoGestaoNome: l.grupo_gestao ? `${l.grupo_gestao.codigo} - ${l.grupo_gestao.nome}` : undefined,
+      centroCustoId: l.centro_custo_id ?? undefined,
+      centroCustoCodigo: l.centro_custo?.codigo,
+      centroCustoNome: l.centro_custo?.nome,
       codigo: l.codigo,
       nome: l.nome,
       descricao: l.descricao,
       ativo: l.ativo,
       createdAt: l.created_at,
       updatedAt: l.updated_at
-    }));
-    });
+    };
   }
 
   async getLinhaGestaoById(id: string): Promise<LinhaGestao | null> {
     if (!this.client) return this.fallbackMock.getLinhaGestaoById(id);
-    const { data } = await this.client.from('linha_gestao').select('*, grupo_gestao:grupo_gestao_id (id, codigo, nome)').eq('id', id).single();
+    const { data } = await this.client.from('linha_gestao').select(await this.selectLinhaGestao()).eq('id', id).single();
     if (!data) return null;
-    return {
-      id: data.id,
-      grupoGestaoId: data.grupo_gestao_id,
-      grupoGestaoNome: (data as any).grupo_gestao ? `${(data as any).grupo_gestao.codigo} - ${(data as any).grupo_gestao.nome}` : undefined,
-      codigo: data.codigo,
-      nome: data.nome,
-      descricao: data.descricao,
-      ativo: data.ativo,
-      createdAt: data.created_at,
-      updatedAt: data.updated_at
-    };
+    return this.mapLinhaGestao(data);
   }
 
   async createLinhaGestao(data: Omit<LinhaGestao, 'id' | 'createdAt' | 'updatedAt'>): Promise<LinhaGestao> {
     if (!this.client) return this.fallbackMock.createLinhaGestao(data);
-    const { data: inserted, error } = await this.client.from('linha_gestao').insert({
+    const linha: Record<string, unknown> = {
       grupo_gestao_id: data.grupoGestaoId,
       codigo: data.codigo,
       nome: data.nome,
       descricao: data.descricao,
       ativo: data.ativo ?? true
-    }).select().single();
+    };
+    // Obra vinculada: só com a migration 09. Sem a checagem, o insert falha
+    // inteiro em banco desatualizado e nem a linha de gestão é criada.
+    if (await this.temColuna('linha_gestao', 'centro_custo_id')) {
+      linha.centro_custo_id = toUuidOrNull(data.centroCustoId);
+    } else if (toUuidOrNull(data.centroCustoId)) {
+      throw erroMigration09('O vínculo da Linha de Gestão com a Obra');
+    }
+
+    const { data: inserted, error } = await this.client.from('linha_gestao').insert(linha).select().single();
     this.cache.invalidar('linha_gestao');   // só depois da escrita confirmada
     if (error || !inserted) throw new Error(error?.message || 'Erro ao criar linha de gestão');
     return this.getLinhaGestaoById(inserted.id) as Promise<LinhaGestao>;
@@ -799,13 +851,22 @@ export class SupabaseErpRepository implements IErpRepository {
 
   async updateLinhaGestao(id: string, data: Partial<LinhaGestao>): Promise<LinhaGestao> {
     if (!this.client) return this.fallbackMock.updateLinhaGestao(id, data);
-    const { error } = await this.client.from('linha_gestao').update({
+    const patch: Record<string, unknown> = {
       grupo_gestao_id: data.grupoGestaoId,
       codigo: data.codigo,
       nome: data.nome,
       descricao: data.descricao,
       ativo: data.ativo
-    }).eq('id', id);
+    };
+    if ('centroCustoId' in data) {
+      if (await this.temColuna('linha_gestao', 'centro_custo_id')) {
+        patch.centro_custo_id = toUuidOrNull(data.centroCustoId);
+      } else if (toUuidOrNull(data.centroCustoId)) {
+        throw erroMigration09('O vínculo da Linha de Gestão com a Obra');
+      }
+    }
+
+    const { error } = await this.client.from('linha_gestao').update(patch).eq('id', id);
     this.cache.invalidar('linha_gestao');   // só depois da escrita confirmada
     if (error) throw new Error(error.message);
     return this.getLinhaGestaoById(id) as Promise<LinhaGestao>;
@@ -898,13 +959,54 @@ export class SupabaseErpRepository implements IErpRepository {
   }
 
   /**
-   * Monta a linha de rateio. `plano_conta_id` só entra se a coluna existir —
-   * ela vem com a migration 08 e, sem essa checagem, o insert falha inteiro.
+   * Plano de contas de um item de orçamento, memorizado.
+   *
+   * A tela mostra Item de Orçamento, mas o banco continua gravando
+   * `plano_conta_id` no rateio — é dele que DRE, dashboard e BI vivem. Sem o
+   * memo, um título de 12 parcelas × 3 linhas de rateio faria 36 consultas para
+   * ler o mesmo punhado de itens.
+   */
+  private planoContaDeItem = new Map<string, Promise<string | null>>();
+
+  private async planoContaDoItemOrcamento(itemId: string): Promise<string | null> {
+    if (!this.planoContaDeItem.has(itemId)) {
+      this.planoContaDeItem.set(itemId, (async () => {
+        const { data, error } = await this.client!
+          .from('orcamento_item')
+          .select('plano_conta_id')
+          .eq('id', itemId)
+          .maybeSingle();
+
+        /*
+         * Falha de consulta NÃO pode virar `null` memorizado: o rateio cairia
+         * no plano de contas do título em vez do plano do item, em silêncio e
+         * pelo resto da sessão — justamente o agrupamento de que DRE, dashboard
+         * e BI dependem. Esquece a entrada e deixa o erro subir.
+         */
+        if (error) {
+          this.planoContaDeItem.delete(itemId);
+          throw new Error(
+            `Não foi possível ler o plano de contas do item de orçamento: ${error.message}`
+          );
+        }
+        return (data as any)?.plano_conta_id ?? null;
+      })());
+    }
+    return this.planoContaDeItem.get(itemId)!;
+  }
+
+  /**
+   * Monta a linha de rateio (aba Apropriação).
+   *
+   * `centro_custo_id` é a Unidade Construtiva escolhida — ou a própria Obra,
+   * quando ela não tem unidades. `orcamento_item_id` é a coluna nova da
+   * migration 09; `plano_conta_id` vem da 08. As duas só entram se existirem:
+   * gravá-las às cegas derruba o insert inteiro em banco desatualizado.
    */
   private async montarRateio(
     parcelaId: string,
     centroCustoId: string,
-    rateio: { planoContaId?: string; percentual: number; valorCentavos: number },
+    rateio: { orcamentoItemId?: string; planoContaId?: string; percentual: number; valorCentavos: number },
     planoContaTituloId: string
   ): Promise<Record<string, unknown>> {
     const linha: Record<string, unknown> = {
@@ -914,9 +1016,20 @@ export class SupabaseErpRepository implements IErpRepository {
       valor: rateio.valorCentavos / 100,
     };
 
-    // Plano de contas próprio da linha; sem ele, herda o do título.
+    const itemUuid = toUuidOrNull(rateio.orcamentoItemId);
+    if (itemUuid) {
+      if (!(await this.temColuna('titulo_rateio', 'orcamento_item_id'))) {
+        throw erroMigration09('O Item de Orçamento da apropriação');
+      }
+      linha.orcamento_item_id = itemUuid;
+    }
+
+    // Plano de contas: o do item de orçamento manda, porque é ele que o usuário
+    // escolheu na tela. Sem item, cai no plano próprio da linha e, por fim, no
+    // do título.
     if (await this.temColuna('titulo_rateio', 'plano_conta_id')) {
-      linha.plano_conta_id = toUuidOrNull(rateio.planoContaId) || planoContaTituloId;
+      const planoDoItem = itemUuid ? await this.planoContaDoItemOrcamento(itemUuid) : null;
+      linha.plano_conta_id = planoDoItem || toUuidOrNull(rateio.planoContaId) || planoContaTituloId;
     }
 
     return linha;
@@ -1311,7 +1424,70 @@ export class SupabaseErpRepository implements IErpRepository {
       }];
     }
 
+    /*
+     * Apropriação gravada (titulo_rateio).
+     *
+     * `mapTitulos` devolvia `rateios: []` em toda parcela: a aba Apropriação
+     * era gravada mas nunca lida de volta. Reabrir um título mostrava a aba
+     * vazia e o salvamento seguinte regravava tudo como "Não alocado" 100% —
+     * a classificação se perdia sem aviso na segunda edição.
+     */
+    await this.carregarRateiosDasParcelas(titulo);
+
     return titulo;
+  }
+
+  /** Repõe a apropriação de cada parcela a partir de `titulo_rateio`. */
+  private async carregarRateiosDasParcelas(titulo: Titulo): Promise<void> {
+    const parcelaIds = (titulo.parcelas ?? [])
+      .map(p => p.id)
+      .filter((id): id is string => !!id);
+    if (parcelaIds.length === 0) return;
+
+    // Colunas opcionais (migrations 08 e 09): pedir o que não existe derruba a
+    // consulta e a aba voltaria vazia justamente onde há dado gravado.
+    const [temItem, temPlano] = await Promise.all([
+      this.temColuna('titulo_rateio', 'orcamento_item_id'),
+      this.temColuna('titulo_rateio', 'plano_conta_id'),
+    ]);
+
+    const select = [
+      '*',
+      'centro_custo:centro_custo_id (id, codigo, nome, parent_id)',
+      temItem ? 'orcamento_item:orcamento_item_id (id, codigo, descricao)' : null,
+      temPlano ? 'plano_conta:plano_conta_id (id, codigo, nome)' : null,
+    ].filter(Boolean).join(', ');
+
+    const { data } = await this.client!
+      .from('titulo_rateio')
+      .select(select)
+      .in('parcela_id', parcelaIds);
+
+    const porParcela = new Map<string, TituloRateio[]>();
+    for (const l of ((data ?? []) as any[])) {
+      const lista = porParcela.get(l.parcela_id) ?? [];
+      lista.push({
+        id: l.id,
+        centroCustoId: l.centro_custo_id,
+        centroCustoCodigo: l.centro_custo?.codigo,
+        centroCustoNome: l.centro_custo?.nome,
+        obraId: l.centro_custo?.parent_id ?? undefined,
+        orcamentoItemId: l.orcamento_item_id ?? undefined,
+        orcamentoItemCodigo: l.orcamento_item?.codigo ?? undefined,
+        orcamentoItemDescricao: l.orcamento_item?.descricao ?? undefined,
+        planoContaId: l.plano_conta_id ?? undefined,
+        planoContaCodigo: l.plano_conta?.codigo,
+        planoContaNome: l.plano_conta?.nome,
+        percentual: Number(l.percentual),
+        valorCentavos: Math.round(Number(l.valor) * 100),
+        ativo: l.ativo ?? true,
+      });
+      porParcela.set(l.parcela_id, lista);
+    }
+
+    for (const p of titulo.parcelas ?? []) {
+      if (p.id) p.rateios = porParcela.get(p.id) ?? [];
+    }
   }
 
   async getParcelasView(tipo: TipoTitulo, filtro?: FiltroParcelas): Promise<ParcelaView[]> {
@@ -1695,12 +1871,438 @@ export class SupabaseErpRepository implements IErpRepository {
   }
 
   async getFluxoCaixa(filtro: FiltroFluxoCaixa): Promise<FluxoCaixaResultado> { return this.fallbackMock.getFluxoCaixa(filtro); }
-  async getOrcamentos(filtro?: any): Promise<Orcamento[]> { return this.fallbackMock.getOrcamentos(filtro); }
-  async getOrcamentoById(id: string): Promise<Orcamento | null> { return this.fallbackMock.getOrcamentoById(id); }
-  async createOrcamento(data: any): Promise<Orcamento> { return this.fallbackMock.createOrcamento(data); }
-  async updateOrcamento(id: string, data: any): Promise<Orcamento> { return this.fallbackMock.updateOrcamento(id, data); }
-  async aprovarOrcamento(id: string, usuario?: string): Promise<Orcamento> { return this.fallbackMock.aprovarOrcamento(id, usuario); }
-  async criarRevisaoOrcamento(id: string, motivoRevisao: string, usuario?: string): Promise<Orcamento> { return this.fallbackMock.criarRevisaoOrcamento(id, motivoRevisao, usuario); }
+  // ---------------------------------------------------------------------------
+  // 9. ORÇAMENTO DA OBRA (persistência real)
+  // ---------------------------------------------------------------------------
+  /*
+   * Estes métodos delegavam ao mock em memória. Com o módulo desligado ninguém
+   * percebia; agora que a aba Apropriação escolhe um Item de Orçamento, delegar
+   * significaria apropriar títulos contra itens que não existem no banco — o
+   * orçamento sumiria a cada F5 e o rateio apontaria para o nada.
+   *
+   * Hierarquia gravada: orcamento.centro_custo_id = OBRA,
+   * orcamento_item.centro_custo_id = UNIDADE CONSTRUTIVA.
+   */
+  private static readonly SELECT_ORCAMENTO = `
+      *,
+      centro_custo:centro_custo_id (id, codigo, nome),
+      orcamento_item (
+        *,
+        plano_conta:plano_conta_id (id, codigo, nome),
+        centro_custo:centro_custo_id (id, codigo, nome),
+        orcamento_item_periodo (*)
+      )
+    `;
+
+  private mapOrcamento(o: any): Orcamento {
+    const itens = (o.orcamento_item ?? [])
+      .map((i: any) => ({
+        id: i.id,
+        orcamentoId: i.orcamento_id,
+        codigo: i.codigo ?? undefined,
+        planoContaId: i.plano_conta_id,
+        planoContaCodigo: i.plano_conta?.codigo ?? '',
+        planoContaNome: i.plano_conta?.nome ?? '',
+        centroCustoId: i.centro_custo_id ?? undefined,
+        centroCustoCodigo: i.centro_custo?.codigo,
+        centroCustoNome: i.centro_custo?.nome,
+        descricao: i.descricao ?? undefined,
+        quantidade: i.quantidade != null ? Number(i.quantidade) : undefined,
+        unidade: i.unidade ?? undefined,
+        valorUnitarioCentavos:
+          i.valor_unitario != null ? Math.round(Number(i.valor_unitario) * 100) : undefined,
+        valorTotalCentavos: Math.round(Number(i.valor_total ?? 0) * 100),
+        ordem: i.ordem ?? 1,
+        periodos: (i.orcamento_item_periodo ?? []).map((pe: any) => ({
+          id: pe.id,
+          orcamentoItemId: pe.orcamento_item_id,
+          mesReferencia: pe.mes_referencia,
+          valorCentavos: Math.round(Number(pe.valor ?? 0) * 100),
+        })),
+        // Aliases que o restante do módulo ainda consulta.
+        planoContaNivel2Id: i.plano_conta_id,
+        planoContaNivel2Codigo: i.plano_conta?.codigo ?? '',
+        planoContaNivel2Nome: i.plano_conta?.nome ?? '',
+      }))
+      .sort((a: any, b: any) => a.ordem - b.ordem);
+
+    return {
+      id: o.id,
+      centroCustoId: o.centro_custo_id,
+      centroCustoCodigo: o.centro_custo?.codigo ?? '',
+      centroCustoNome: o.centro_custo?.nome ?? '',
+      nome: o.nome,
+      versao: o.versao ?? 1,
+      orcamentoBaseId: o.orcamento_base_id ?? undefined,
+      dataInicio: o.data_inicio,
+      dataFim: o.data_fim,
+      status: o.status,
+      valorTotalCentavos: Math.round(Number(o.valor_total ?? 0) * 100),
+      aprovadoEm: o.aprovado_em ?? undefined,
+      aprovadoPor: o.aprovado_por ?? undefined,
+      motivoRevisao: o.motivo_revisao ?? undefined,
+      observacao: o.observacao ?? undefined,
+      ativo: o.ativo ?? true,
+      createdAt: o.created_at,
+      updatedAt: o.updated_at ?? undefined,
+      itens,
+      descricao: o.nome,
+      isVigente: o.status === 'aprovado',
+      dataAprovacao: o.aprovado_em ?? undefined,
+    };
+  }
+
+  async getOrcamentos(filtro?: { centroCustoId?: string; status?: string; dataInicioDe?: string; dataFimAte?: string }): Promise<Orcamento[]> {
+    if (!this.client) return this.fallbackMock.getOrcamentos(filtro);
+
+    let query = this.client
+      .from('orcamento')
+      .select(SupabaseErpRepository.SELECT_ORCAMENTO)
+      .eq('ativo', true);
+
+    if (filtro?.centroCustoId) query = query.eq('centro_custo_id', filtro.centroCustoId);
+    if (filtro?.status) query = query.eq('status', filtro.status);
+    if (filtro?.dataInicioDe) query = query.gte('data_inicio', filtro.dataInicioDe);
+    if (filtro?.dataFimAte) query = query.lte('data_fim', filtro.dataFimAte);
+
+    const { data, error } = await query.order('created_at', { ascending: false });
+    if (error || !data) {
+      /*
+       * Lista vazia mantém a tela de pé, mas não pode sumir em silêncio: é
+       * dela que sai a exigência de Item de Orçamento na aba Apropriação, e uma
+       * consulta falha faria a validação simplesmente parar de cobrar.
+       */
+      console.error('[orcamento] falha ao listar orçamentos:', error?.message ?? 'resposta vazia');
+      return [];
+    }
+    return (data as any[]).map(o => this.mapOrcamento(o));
+  }
+
+  async getOrcamentoById(id: string): Promise<Orcamento | null> {
+    if (!this.client) return this.fallbackMock.getOrcamentoById(id);
+    const { data } = await this.client
+      .from('orcamento')
+      .select(SupabaseErpRepository.SELECT_ORCAMENTO)
+      .eq('id', id)
+      .maybeSingle();
+    return data ? this.mapOrcamento(data) : null;
+  }
+
+  /**
+   * Regrava a planilha do orçamento e devolve o total em centavos.
+   *
+   * Trabalha por DIFERENÇA — atualiza quem já existe, insere quem é novo, apaga
+   * só quem o usuário tirou da planilha. A versão anterior apagava tudo e
+   * reinseria, o que custava caro em dois pontos:
+   *
+   *  1. `titulo_rateio.orcamento_item_id` tem ON DELETE RESTRICT. Bastava UM
+   *     título apropriado contra qualquer item para o DELETE em massa falhar e
+   *     o orçamento inteiro virar não-editável pela tela, para sempre.
+   *  2. Sem transação, uma falha no meio do laço deixava o orçamento truncado:
+   *     os itens antigos já tinham sido apagados e só parte dos novos entrou.
+   *
+   * Preservar o id também mantém válida a apropriação já gravada nos títulos,
+   * que aponta para o item — regenerar ids a cada salvamento a apagaria.
+   *
+   * Continua sem transação (o supabase-js não expõe uma), mas agora a falha no
+   * meio deixa o estado anterior de pé em vez de destruído.
+   */
+  private async gravarItensOrcamento(
+    orcamentoId: string,
+    itens: {
+      id?: string;
+      codigo?: string;
+      planoContaId: string;
+      centroCustoId?: string;
+      descricao?: string;
+      quantidade?: number;
+      unidade?: string;
+      valorUnitarioCentavos?: number;
+      valorTotalCentavos: number;
+      periodos: { mesReferencia: string; valorCentavos: number }[];
+    }[]
+  ): Promise<number> {
+    const { data: existentesRaw, error: lerErro } = await this.client!
+      .from('orcamento_item')
+      .select('id')
+      .eq('orcamento_id', orcamentoId);
+
+    if (lerErro) throw new Error(`Não foi possível ler os itens do orçamento: ${lerErro.message}`);
+
+    const idsExistentes = new Set(((existentesRaw ?? []) as any[]).map(i => i.id as string));
+    const idsMantidos = new Set<string>();
+
+    const temCodigo = await this.temColuna('orcamento_item', 'codigo');
+    if (!temCodigo && itens.some(i => (i.codigo ?? '').trim())) {
+      // Mesma regra das outras colunas da 09: não descarta escolha do usuário.
+      throw erroMigration09('O código do item de orçamento');
+    }
+
+    let totalCentavos = 0;
+
+    for (let i = 0; i < itens.length; i++) {
+      const item = itens[i];
+      totalCentavos += item.valorTotalCentavos;
+
+      const linha: Record<string, unknown> = {
+        orcamento_id: orcamentoId,
+        plano_conta_id: item.planoContaId,
+        centro_custo_id: toUuidOrNull(item.centroCustoId),
+        descricao: item.descricao ?? null,
+        quantidade: item.quantidade ?? null,
+        unidade: item.unidade ?? null,
+        valor_unitario: item.valorUnitarioCentavos != null ? item.valorUnitarioCentavos / 100 : null,
+        valor_total: item.valorTotalCentavos / 100,
+        ordem: i + 1,
+      };
+      if (temCodigo) linha.codigo = item.codigo ?? null;
+
+      // Id não-UUID vem do editor (linha recém-criada na tela): é item novo.
+      const idExistente = toUuidOrNull(item.id);
+      let itemId: string;
+
+      if (idExistente && idsExistentes.has(idExistente)) {
+        const { error } = await this.client!
+          .from('orcamento_item')
+          .update({ ...linha, updated_at: new Date().toISOString() })
+          .eq('id', idExistente);
+        if (error) throw new Error(`Falha ao atualizar o item ${i + 1} do orçamento: ${error.message}`);
+        itemId = idExistente;
+        idsMantidos.add(idExistente);
+      } else {
+        const { data: inserido, error } = await this.client!
+          .from('orcamento_item')
+          .insert(linha)
+          .select('id')
+          .single();
+        if (error || !inserido) {
+          throw new Error(`Falha ao gravar o item ${i + 1} do orçamento: ${error?.message ?? 'erro desconhecido'}`);
+        }
+        itemId = inserido.id;
+      }
+
+      // O plano de contas do item pode ter mudado neste salvamento.
+      this.planoContaDeItem.delete(itemId);
+
+      // Períodos não são referenciados por ninguém: aqui trocar tudo é seguro.
+      const { error: delPer } = await this.client!
+        .from('orcamento_item_periodo')
+        .delete()
+        .eq('orcamento_item_id', itemId);
+      if (delPer) throw new Error(`Falha ao limpar a distribuição mensal do item ${i + 1}: ${delPer.message}`);
+
+      const periodos = (item.periodos ?? []).filter(pe => pe.valorCentavos > 0);
+      if (periodos.length > 0) {
+        const { error: pErro } = await this.client!.from('orcamento_item_periodo').insert(
+          periodos.map(pe => ({
+            orcamento_item_id: itemId,
+            mes_referencia: pe.mesReferencia,
+            valor: pe.valorCentavos / 100,
+          }))
+        );
+        if (pErro) throw new Error(`Falha ao gravar a distribuição mensal do item ${i + 1}: ${pErro.message}`);
+      }
+    }
+
+    // Só o que o usuário realmente removeu da planilha.
+    const removidos = [...idsExistentes].filter(id => !idsMantidos.has(id));
+    if (removidos.length > 0) {
+      const { error: delErro } = await this.client!
+        .from('orcamento_item')
+        .delete()
+        .in('id', removidos);
+
+      if (delErro) {
+        throw new Error(
+          `Não foi possível remover ${removidos.length} item(ns) do orçamento: ${delErro.message}. ` +
+          'Item já apropriado em título não pode ser excluído — retire a apropriação do título antes.'
+        );
+      }
+      for (const id of removidos) this.planoContaDeItem.delete(id);
+    }
+
+    return totalCentavos;
+  }
+
+  /**
+   * Próxima versão livre da obra. `unique_centro_custo_versao` recusa duas
+   * versões iguais no mesmo centro de custo — sem isto, o segundo orçamento de
+   * uma obra falharia com violação de UNIQUE.
+   */
+  private async proximaVersaoOrcamento(centroCustoId: string): Promise<number> {
+    const { data } = await this.client!
+      .from('orcamento')
+      .select('versao')
+      .eq('centro_custo_id', centroCustoId)
+      .order('versao', { ascending: false })
+      .limit(1);
+    return ((data as any[])?.[0]?.versao ?? 0) + 1;
+  }
+
+  async createOrcamento(data: {
+    centroCustoId: string;
+    nome: string;
+    dataInicio: string;
+    dataFim: string;
+    observacao?: string;
+    itens: {
+      codigo?: string;
+      planoContaId: string;
+      centroCustoId?: string;
+      descricao?: string;
+      quantidade?: number;
+      unidade?: string;
+      valorUnitarioCentavos?: number;
+      valorTotalCentavos: number;
+      periodos: { mesReferencia: string; valorCentavos: number }[];
+    }[];
+  }): Promise<Orcamento> {
+    if (!this.client) return this.fallbackMock.createOrcamento(data);
+
+    const obraUuid = toUuidOrNull(data.centroCustoId);
+    if (!obraUuid) throw new Error('Selecione a Obra do orçamento.');
+
+    const { data: inserido, error } = await this.client
+      .from('orcamento')
+      .insert({
+        centro_custo_id: obraUuid,
+        nome: data.nome,
+        versao: await this.proximaVersaoOrcamento(obraUuid),
+        data_inicio: data.dataInicio,
+        data_fim: data.dataFim,
+        status: 'rascunho',
+        valor_total: 0,
+        observacao: data.observacao ?? null,
+        ativo: true,
+      })
+      .select('id')
+      .single();
+
+    if (error || !inserido) throw new Error(error?.message || 'Erro ao criar o orçamento.');
+
+    const totalCentavos = await this.gravarItensOrcamento(inserido.id, data.itens ?? []);
+    await this.client.from('orcamento').update({
+      valor_total: totalCentavos / 100,
+      updated_at: new Date().toISOString(),
+    }).eq('id', inserido.id);
+
+    const rec = await this.getOrcamentoById(inserido.id);
+    if (!rec) throw new Error('Orçamento gravado, mas não foi possível relê-lo.');
+    return rec;
+  }
+
+  async updateOrcamento(id: string, data: {
+    nome?: string;
+    observacao?: string;
+    itens?: {
+      id?: string;
+      codigo?: string;
+      planoContaId: string;
+      centroCustoId?: string;
+      descricao?: string;
+      quantidade?: number;
+      unidade?: string;
+      valorUnitarioCentavos?: number;
+      valorTotalCentavos: number;
+      periodos: { mesReferencia: string; valorCentavos: number }[];
+    }[];
+  }): Promise<Orcamento> {
+    if (!this.client) return this.fallbackMock.updateOrcamento(id, data);
+
+    const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (data.nome !== undefined) patch.nome = data.nome;
+    if (data.observacao !== undefined) patch.observacao = data.observacao;
+
+    if (data.itens) {
+      patch.valor_total = (await this.gravarItensOrcamento(id, data.itens)) / 100;
+    }
+
+    const { error } = await this.client.from('orcamento').update(patch).eq('id', id);
+    if (error) throw new Error(error.message);
+
+    const rec = await this.getOrcamentoById(id);
+    if (!rec) throw new Error('Orçamento atualizado, mas não foi possível relê-lo.');
+    return rec;
+  }
+
+  async aprovarOrcamento(id: string, usuario?: string): Promise<Orcamento> {
+    if (!this.client) return this.fallbackMock.aprovarOrcamento(id, usuario);
+    const { error } = await this.client.from('orcamento').update({
+      status: 'aprovado',
+      aprovado_em: new Date().toISOString(),
+      aprovado_por: usuario ?? null,
+      updated_at: new Date().toISOString(),
+    }).eq('id', id);
+    if (error) throw new Error(error.message);
+
+    const rec = await this.getOrcamentoById(id);
+    if (!rec) throw new Error('Orçamento aprovado, mas não foi possível relê-lo.');
+    return rec;
+  }
+  /**
+   * Nova versão em rascunho a partir de um orçamento aprovado.
+   *
+   * Delegava ao mock, que procura o orçamento numa lista em memória: com o
+   * cadastro gravando no banco, o botão "Nova Revisão" falhava sempre com
+   * "Orçamento base não encontrado".
+   *
+   * A versão nova nasce com CÓPIAS dos itens (ids próprios). É proposital: os
+   * itens da versão aprovada seguem existindo e as apropriações de títulos que
+   * apontam para eles continuam íntegras.
+   */
+  async criarRevisaoOrcamento(id: string, motivoRevisao: string, usuario?: string): Promise<Orcamento> {
+    if (!this.client) return this.fallbackMock.criarRevisaoOrcamento(id, motivoRevisao, usuario);
+
+    if (!motivoRevisao?.trim()) throw new Error('Informe o motivo da revisão.');
+
+    const base = await this.getOrcamentoById(id);
+    if (!base) throw new Error('Orçamento base não encontrado.');
+
+    const { data: inserido, error } = await this.client
+      .from('orcamento')
+      .insert({
+        centro_custo_id: base.centroCustoId,
+        nome: base.nome,
+        versao: await this.proximaVersaoOrcamento(base.centroCustoId),
+        orcamento_base_id: base.orcamentoBaseId ?? base.id,
+        data_inicio: base.dataInicio,
+        data_fim: base.dataFim,
+        status: 'rascunho',
+        valor_total: 0,
+        motivo_revisao: motivoRevisao,
+        observacao: base.observacao ?? null,
+        ativo: true,
+      })
+      .select('id')
+      .single();
+
+    if (error || !inserido) throw new Error(error?.message || 'Erro ao criar a revisão do orçamento.');
+
+    const total = await this.gravarItensOrcamento(
+      inserido.id,
+      base.itens.map(i => ({
+        // sem `id`: cada item da revisão é novo, o da versão base fica de pé
+        codigo: i.codigo,
+        planoContaId: i.planoContaId,
+        centroCustoId: i.centroCustoId,
+        descricao: i.descricao,
+        quantidade: i.quantidade,
+        unidade: i.unidade,
+        valorUnitarioCentavos: i.valorUnitarioCentavos,
+        valorTotalCentavos: i.valorTotalCentavos,
+        periodos: i.periodos.map(pe => ({ mesReferencia: pe.mesReferencia, valorCentavos: pe.valorCentavos })),
+      }))
+    );
+
+    await this.client.from('orcamento').update({
+      valor_total: total / 100,
+      updated_at: new Date().toISOString(),
+    }).eq('id', inserido.id);
+
+    const rec = await this.getOrcamentoById(inserido.id);
+    if (!rec) throw new Error('Revisão criada, mas não foi possível relê-la.');
+    return rec;
+  }
   async getOrcamentosEmpreendimento(filtro?: any): Promise<OrcamentoEmpreendimento[]> { return this.fallbackMock.getOrcamentosEmpreendimento(filtro); }
   async createOrcamentoEmpreendimento(data: any): Promise<OrcamentoEmpreendimento> { return this.fallbackMock.createOrcamentoEmpreendimento(data); }
   async updateOrcamentoEmpreendimento(id: string, data: any): Promise<OrcamentoEmpreendimento> { return this.fallbackMock.updateOrcamentoEmpreendimento(id, data); }

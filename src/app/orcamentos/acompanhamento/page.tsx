@@ -1,5 +1,7 @@
 'use client';
 
+import { ModuloDesativado } from '@/components/ModuloDesativado';
+
 import React, { useEffect, useState } from 'react';
 import { 
   erpRepository, 
@@ -41,7 +43,7 @@ import {
 } from 'recharts';
 import { useToast } from '@/components/ui/ToastProvider';
 
-export default function AcompanhamentoOrcamentarioPage() {
+function AcompanhamentoOrcamentarioPage() {
   const toast = useToast();
   const [orcamentos, setOrcamentos] = useState<Orcamento[]>([]);
   const [selectedOrcamentoId, setSelectedOrcamentoId] = useState<string>('');
@@ -619,5 +621,25 @@ export default function AcompanhamentoOrcamentarioPage() {
         </>
       )}
     </div>
+  );
+}
+
+/*
+ * Acompanhamento ainda não ligado ao banco.
+ *
+ * `getOrcamentoExecucao` continua servido pelo mock em memória, enquanto o
+ * cadastro do orçamento já grava no Supabase. Antes o módulo inteiro estava
+ * desligado e ninguém chegava aqui; agora que a planilha voltou, esta rota
+ * mostraria orçado × comprometido × realizado inventado sobre orçamentos reais.
+ *
+ * Para religar: implemente getOrcamentoExecucao no SupabaseErpRepository e
+ * devolva o `export default` ao componente acima.
+ */
+export default function Page() {
+  return (
+    <ModuloDesativado
+      nome="Acompanhamento Orçamentário"
+      motivo="O cadastro do Orçamento de Obra já está no ar. O acompanhamento (orçado × comprometido × realizado e Curva S) ainda não lê do banco e será religado numa próxima etapa."
+    />
   );
 }

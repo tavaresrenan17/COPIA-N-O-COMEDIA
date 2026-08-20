@@ -39,7 +39,7 @@ export function Topbar() {
     '/departamentos': 'Hub de Departamentos',
     '/cadastros': 'Bases de Cadastros',
     '/relatorios': 'Relatórios Executivos',
-    '/orcamentos': 'Orçamentos - DAV',
+    '/orcamentos': 'Orçamento de Obra',
     '/contas-pagar': 'Contas a Pagar',
     '/contas-receber': 'Contas a Receber',
     '/fluxo-caixa': 'Fluxo de Caixa',
