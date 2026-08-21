@@ -170,7 +170,7 @@ interface ErpMoneyProps {
   hasError?: boolean;
 }
 
-export function ErpMoney({ value, onChange, disabled, widthClass = 'w-[188px]', required, hasError }: ErpMoneyProps) {
+export function ErpMoney({ value, onChange, disabled, widthClass = 'w-[130px]', required, hasError }: ErpMoneyProps) {
   const errClass = hasError ? erpFieldError : '';
   return (
     <input

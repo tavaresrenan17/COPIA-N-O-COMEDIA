@@ -1558,7 +1558,7 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
                     value={valorTotalStr}
                     onChange={setValorTotalStr}
                     required
-                    widthClass="w-full"
+                    widthClass="w-[130px]"
                     hasError={tentouAvancar && Boolean(errosCadastro.valorTotal)}
                   />
                 </ErpRow>
@@ -1589,6 +1589,7 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
                 <ErpMoney
                   value={descontoStr}
                   onChange={setDescontoStr}
+                  widthClass="w-[130px]"
                   hasError={tentouAvancar && Boolean(errosCadastro.desconto)}
                 />
               </ErpRow>
