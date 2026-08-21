@@ -583,20 +583,6 @@ function OrcamentosPage() {
 
               <form onSubmit={handleCreateNovoSubmit} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-semibold text-ink-muted mb-1">Obra</label>
-                  <select
-                    value={formCcId}
-                    onChange={(e) => setFormCcId(e.target.value)}
-                    required
-                    className="w-full bg-surface-muted border border-black/10 rounded-xl px-3 py-2 text-xs font-bold text-ink-primary focus:outline-none focus:ring-2 focus:ring-brand"
-                  >
-                    {obras.map(cc => (
-                      <option key={cc.id} value={cc.id}>{cc.codigo} - {cc.nome}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
                   <label className="block text-xs font-semibold text-ink-muted mb-1">Nome do Orçamento</label>
                   <input
                     type="text"
@@ -604,8 +590,24 @@ function OrcamentosPage() {
                     value={formNome}
                     onChange={(e) => setFormNome(e.target.value)}
                     required
-                    className="w-full bg-surface-muted border border-black/10 rounded-xl px-3 py-2 text-xs text-ink-primary focus:outline-none focus:ring-2 focus:ring-brand"
+                    autoFocus
+                    className="w-full bg-surface-muted border border-black/10 rounded-xl px-3 py-2 text-xs text-ink-primary focus:outline-none focus:ring-2 focus:ring-brand font-medium"
                   />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-ink-muted mb-1">Centro de Custo</label>
+                  <select
+                    value={formCcId}
+                    onChange={(e) => setFormCcId(e.target.value)}
+                    required
+                    className="w-full bg-surface-muted border border-black/10 rounded-xl px-3 py-2 text-xs font-bold text-ink-primary focus:outline-none focus:ring-2 focus:ring-brand"
+                  >
+                    <option value="">Selecione o Centro de Custo...</option>
+                    {(obras.length > 0 ? obras : centrosCusto).map(cc => (
+                      <option key={cc.id} value={cc.id}>{cc.codigo} - {cc.nome}</option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
