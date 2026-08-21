@@ -963,21 +963,17 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
     if (!tipoDocumento) errs.tipoDocumento = 'Informe o tipo de documento.';
     if (!numeroDocumento.trim()) errs.numeroDocumento = 'Informe o número do documento.';
     if (!pessoaId) errs.pessoaId = isPagar ? 'Informe o credor.' : 'Informe o devedor.';
-    /*
-     * Plano de contas NÃO entra aqui: a primeira aba é o cadastro básico, que
-     * ao ser salvo libera as demais. A classificação contábil é preenchida
-     * depois, numa segunda passada.
-     *
-     * (Além disso não existe hoje campo na tela para escolhê-lo: o lookup
-     * 'conta' está configurado mas nenhum botão o abre. Exigir aqui travava o
-     * formulário sem saída.)
-     */
     if (!dataEmissao) errs.dataEmissao = 'Informe a data de emissão.';
     if (valorTotalCentavos <= 0) errs.valorTotal = 'Informe o valor total do título (maior que R$ 0,00).';
     if (descontoCentavos > valorTotalCentavos)
       errs.desconto = 'O desconto não pode ser maior que o valor total.';
     if (!dataContabil) errs.dataContabil = 'Informe a data contábil.';
     if (!primeiroVencimento) errs.primeiroVencimento = 'Informe a data do 1º vencimento.';
+    if (!planoContaId) {
+      errs.planoContaId = 'Selecione o plano financeiro.';
+    } else if (planoContaIncompativel) {
+      errs.planoContaId = `O plano financeiro selecionado (${planoContaIncompativel}) é incompatível com título a ${isPagar ? 'pagar' : 'receber'}.`;
+    }
     return errs;
   }, [
     tipoDocumento,
@@ -988,6 +984,8 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
     descontoCentavos,
     dataContabil,
     primeiroVencimento,
+    planoContaId,
+    planoContaIncompativel,
     isPagar,
   ]);
 
@@ -1082,21 +1080,21 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
       label: `Parcelas${parcelas.length > 0 ? ` (${parcelas.length})` : ''}`,
       alerta: pendenciasPorAba.parcelas.length > 0,
       disabled: !isCadastroCompleto,
-      disabledReason: 'Preencha o cadastro inicial completo para liberar a aba Parcelas.',
+      disabledReason: 'Preencha o cadastro inicial completo (incluindo o Plano Financeiro) para liberar a aba Parcelas.',
     },
     {
       key: 'alocacao',
       label: 'Alocação de Títulos',
       alerta: false,
       disabled: !isCadastroCompleto,
-      disabledReason: 'Preencha o cadastro inicial completo para liberar a aba Alocação de Títulos.',
+      disabledReason: 'Preencha o cadastro inicial completo (incluindo o Plano Financeiro) para liberar a aba Alocação de Títulos.',
     },
     {
       key: 'apropria-obra',
       label: 'Apropriação',
       alerta: pendenciasPorAba['apropria-obra'].length > 0,
       disabled: !isCadastroCompleto,
-      disabledReason: 'Preencha o cadastro inicial completo para liberar a aba Apropriação.',
+      disabledReason: 'Preencha o cadastro inicial completo (incluindo o Plano Financeiro) para liberar a aba Apropriação.',
     },
   ];
 
@@ -1439,7 +1437,7 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
               <div className="flex items-center gap-2 font-medium">
                 <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
                 <span>
-                  <strong>Cadastro Inicial Incompleto:</strong> Preencha os campos obrigatórios destacados em vermelho abaixo para liberar as abas de Parcelas, Alocação de Títulos e Apropriação.
+                  <strong>Cadastro Inicial Incompleto:</strong> Preencha os campos obrigatórios destacados em vermelho abaixo (incluindo o Plano Financeiro) para liberar as abas de Parcelas, Alocação de Títulos e Apropriação e salvar o título.
                 </span>
               </div>
             </div>
@@ -1492,7 +1490,7 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
                   onChange={(e) => setNumeroDocumento(e.target.value)}
                   placeholder="1234"
                   required
-                  widthClass="w-[188px]"
+                  widthClass="w-[110px]"
                   hasError={tentouAvancar && Boolean(errosCadastro.numeroDocumento)}
                 />
               </ErpRow>
@@ -1643,6 +1641,40 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
                   As parcelas podem ser adicionadas, ajustadas e parceladas livremente na aba{' '}
                   <span className="font-medium">Parcelas</span>.
                 </p>
+              </ErpSection>
+
+              <ErpSection title="Plano Financeiro">
+                <ErpRow
+                  label="Plano financeiro"
+                  required
+                  hasError={tentouAvancar && Boolean(errosCadastro.planoContaId)}
+                  error={tentouAvancar ? errosCadastro.planoContaId : undefined}
+                >
+                  <ErpLookup
+                    codigo={planoContaSel?.codigo || ''}
+                    codeWidthClass="w-[100px]"
+                    descricao={
+                      planoContaSel
+                        ? `${planoContaSel.nome} (${planoContaSel.natureza.toUpperCase()})`
+                        : ''
+                    }
+                    options={lookupConfig.conta.items}
+                    onSelect={lookupConfig.conta.onSelect}
+                    onOpen={() => setLookupAberto('conta')}
+                    onCodeCommit={commitCodigo('conta')}
+                    required
+                    hasError={tentouAvancar && Boolean(errosCadastro.planoContaId)}
+                  />
+                </ErpRow>
+
+                {planoContaIncompativel && (
+                  <div className="mt-1.5 p-2 bg-amber-50 border border-amber-300 rounded text-amber-800 text-[11px] flex items-center gap-1.5 font-medium">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span>
+                      Conta incompatível com títulos a {isPagar ? 'pagar' : 'receber'}: <strong>{planoContaIncompativel}</strong>. Selecione uma conta de {isPagar ? 'despesa/custo' : 'receita'}.
+                    </span>
+                  </div>
+                )}
               </ErpSection>
             </>
           )}
