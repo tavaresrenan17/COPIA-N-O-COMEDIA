@@ -727,7 +727,9 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
       if (r.obraId) idsObras.add(r.obraId);
     }
 
-    return centroCustosTodos.filter((c) => idsObras.has(c.id));
+    const filtradas = centroCustosTodos.filter((c) => idsObras.has(c.id));
+    if (filtradas.length > 0) return filtradas;
+    return centroCustosTodos.filter((c) => !c.parentId);
   }, [rateiosGestao, linhasGestao, centroCustosTodos, rateios]);
 
   /**

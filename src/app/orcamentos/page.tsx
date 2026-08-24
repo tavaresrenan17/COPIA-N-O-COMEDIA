@@ -5,7 +5,8 @@ import {
   erpRepository, 
   CentroCusto, 
   Orcamento, 
-  PlanoConta 
+  PlanoConta,
+  LinhaGestao 
 } from '@/data';
 import { formatCurrency } from '@/lib/formatters';
 import { OrcamentoSpreadsheetEditor } from '@/components/OrcamentoSpreadsheetEditor';
@@ -40,6 +41,7 @@ function OrcamentosPage() {
   // Estado Principal
   const [orcamentos, setOrcamentos] = useState<Orcamento[]>([]);
   const [centrosCusto, setCentrosCusto] = useState<CentroCusto[]>([]);
+  const [linhasGestao, setLinhasGestao] = useState<LinhaGestao[]>([]);
   const [planosNivel2, setPlanosNivel2] = useState<PlanoConta[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -89,12 +91,14 @@ function OrcamentosPage() {
     : [];
 
   async function loadAuxiliaryData() {
-    const [ccs, pcs] = await Promise.all([
+    const [ccs, pcs, lgs] = await Promise.all([
       erpRepository.getCentrosCusto({ apenasAtivos: true }),
-      erpRepository.getPlanoContas({ apenasAtivos: true })
+      erpRepository.getPlanoContas({ apenasAtivos: true }),
+      erpRepository.getLinhasGestao(undefined, { apenasAtivos: true })
     ]);
 
     setCentrosCusto(ccs);
+    setLinhasGestao(lgs);
     const n2 = pcs.filter(p => p.nivel === 2 || (p.codigo.split('.').length === 2 && !p.aceitaLancamento));
     setPlanosNivel2(n2.length > 0 ? n2 : pcs.filter(p => p.nivel === 2));
 
@@ -604,9 +608,14 @@ function OrcamentosPage() {
                     className="w-full bg-surface-muted border border-black/10 rounded-xl px-3 py-2 text-xs font-bold text-ink-primary focus:outline-none focus:ring-2 focus:ring-brand"
                   >
                     <option value="">Selecione o Centro de Custo...</option>
-                    {(obras.length > 0 ? obras : centrosCusto).map(cc => (
-                      <option key={cc.id} value={cc.id}>{cc.codigo} - {cc.nome}</option>
-                    ))}
+                    {(obras.length > 0 ? obras : centrosCusto).map(cc => {
+                      const lg = linhasGestao.find(l => l.centroCustoId === cc.id);
+                      return (
+                        <option key={cc.id} value={cc.id}>
+                          {cc.codigo} - {cc.nome}{lg ? ` (Linha: ${lg.codigo} - ${lg.nome})` : ''}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
 
