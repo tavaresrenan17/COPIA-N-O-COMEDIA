@@ -173,7 +173,10 @@ export class SupabaseErpRepository implements IErpRepository {
            * usuário para rodar uma migration que já está aplicada.
            */
           const codigo = (error as { code?: string }).code;
-          if (codigo === '42703' || /does not exist/i.test(error.message ?? '')) return false;
+          if (codigo === '42703' || /does not exist/i.test(error.message ?? '')) {
+            this.colunasConhecidas.delete(chave);
+            return false;
+          }
 
           // Erro de outra natureza: não memoriza e assume que a coluna existe.
           this.colunasConhecidas.delete(chave);
