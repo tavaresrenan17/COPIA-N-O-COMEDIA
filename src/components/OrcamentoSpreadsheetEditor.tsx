@@ -7,136 +7,78 @@ import { proximoCodigo } from '@/lib/codigos';
 import { 
   Plus, 
   Trash2, 
-  CheckCircle2, 
-  AlertTriangle, 
-  Zap, 
-  TrendingUp, 
   Lock, 
   Save, 
-  X,
-  HelpCircle,
-  Building2,
-  Sparkles,
-  Check
+  X, 
+  Building2, 
+  Check, 
+  TrendingUp, 
+  DollarSign,
+  PieChart
 } from 'lucide-react';
-
-export interface GridRowPeriodo {
-  mesReferencia: string; // "2026-01-01"
-  rotuloMes: string; // "01/26"
-  valorReais: string; // editável no input
-  valorCentavos: number;
-}
 
 export interface GridRowItem {
   id: string;
-  /** Código do item na planilha ("1.1.3"). É por ele que a Apropriação o exibe. */
+  /** Código do item na planilha ("1.1"). */
   codigo: string;
-  planoContaId: string;
-  /** Unidade Construtiva do item; vazio = item vale para a obra inteira. */
+  planoContaId?: string;
+  /** Unidade Construtiva do item (ENGENHARIA, MÃO DE OBRA, IMPOSTOS, TORRE 1...). */
   centroCustoId?: string;
+  /** Nome / Descrição do Item do Orçamento. */
   descricao: string;
-  quantidade: string;
-  unidade: string;
-  valorUnitarioReais: string;
-  valorTotalReais: string;
-  valorTotalCentavos: number;
-  periodos: GridRowPeriodo[];
-  isValid: boolean; // soma(periodos) === valorTotalCentavos
-  somaPeriodosCentavos: number;
+  /** Valor Esperado em Reais digitado pelo engenheiro (ex: "500,00"). */
+  valorEsperadoReais: string;
+  /** Valor Esperado em centavos inteiros. */
+  valorEsperadoCentavos: number;
+  /** Total Pago / Baixado acumulado em títulos apropriados. */
+  totalPagoCentavos?: number;
+  /** Total Comprometido / A Pagar em aberto. */
+  totalComprometidoCentavos?: number;
+  /** Saldo Restante / Disponível do item. */
+  saldoCentavos?: number;
+  /** % Consumido do orçamento. */
+  percentualConsumido?: number;
 }
 
 interface OrcamentoSpreadsheetEditorProps {
-  dataInicio: string; // "2026-01-01"
-  dataFim: string; // "2026-12-31"
-  planosNivel2: PlanoConta[];
-  /** Unidades Construtivas da obra deste orçamento (filhas dela na árvore). */
+  dataInicio?: string;
+  dataFim?: string;
+  planosNivel2?: PlanoConta[];
+  /** Unidades Construtivas da obra deste orçamento. */
   subCentrosCusto?: CentroCusto[];
   obraId?: string;
   obraNome?: string;
+  orcamentoId?: string;
   initialItens?: any[];
   isReadonly?: boolean;
   onNovaUnidade?: (nova: CentroCusto) => void;
   onSave: (itens: {
-    /** Id do item já gravado; ausente/não-UUID = linha nova. */
     id?: string;
     codigo?: string;
-    planoContaId: string;
+    planoContaId?: string;
     centroCustoId?: string;
     descricao?: string;
     quantidade?: number;
     unidade?: string;
     valorUnitarioCentavos?: number;
     valorTotalCentavos: number;
-    periodos: { mesReferencia: string; valorCentavos: number }[];
+    periodos?: { mesReferencia: string; valorCentavos: number }[];
   }[]) => Promise<void>;
   onCancel?: () => void;
 }
 
-// Auxiliar para gerar lista de meses entre dataInicio e dataFim
-function gerarListaMeses(dataInicio: string, dataFim: string) {
-  const meses: { mesReferencia: string; rotuloMes: string }[] = [];
-  if (!dataInicio || !dataFim) return meses;
-
-  /*
-   * O sufixo T00:00:00 é obrigatório: new Date("2026-01-01") é lido como UTC e,
-   * em fuso negativo (BRT = UTC-3), volta para 31/12/2025 no horário local — a
-   * planilha de um orçamento de janeiro nascia com uma coluna 12/25 a mais e
-   * gravava o período no mês errado. Com o sufixo, a data é lida como local.
-   */
-  let cur = new Date(dataInicio + "T00:00:00");
-  // Normalizar para o dia 1 do mês
-  cur = new Date(cur.getFullYear(), cur.getMonth(), 1);
-  const end = new Date(dataFim + "T00:00:00");
-
-  while (cur <= end) {
-    const yyyy = cur.getFullYear();
-    const mmNum = cur.getMonth() + 1;
-    const mm = mmNum < 10 ? `0${mmNum}` : `${mmNum}`;
-    const mesReferencia = `${yyyy}-${mm}-01`;
-    const rotuloMes = `${mm}/${yyyy.toString().substring(2)}`;
-
-    meses.push({ mesReferencia, rotuloMes });
-    cur.setMonth(cur.getMonth() + 1);
-  }
-
-  return meses;
-}
-
-// Distribuição Curva S (Pesos percentuais em formato Sigmoide)
-function calcularPesosCurvaS(qtdMeses: number): number[] {
-  if (qtdMeses <= 0) return [];
-  if (qtdMeses === 1) return [1.0];
-
-  const pesos: number[] = [];
-  let soma = 0;
-
-  for (let i = 0; i < qtdMeses; i++) {
-    // Normalizar t de -3 a +3 (Curva Logística Sigmoide)
-    const t = -3 + (6 * i) / (qtdMeses - 1);
-    // Derivada da logística (Função Densidade em Forma de S)
-    const val = Math.exp(-t) / Math.pow(1 + Math.exp(-t), 2);
-    pesos.push(val);
-    soma += val;
-  }
-
-  // Normaliza para a soma ser exatamente 1.0
-  return pesos.map(p => p / soma);
-}
-
 export function OrcamentoSpreadsheetEditor({
-  dataInicio,
-  dataFim,
-  planosNivel2,
+  planosNivel2 = [],
   subCentrosCusto = [],
   obraId,
   obraNome,
+  orcamentoId,
   initialItens = [],
   isReadonly = false,
   onNovaUnidade,
   onSave,
   onCancel
 }: OrcamentoSpreadsheetEditorProps) {
-  const listaMeses = gerarListaMeses(dataInicio, dataFim);
   const [rows, setRows] = useState<GridRowItem[]>([]);
   const [saving, setSaving] = useState(false);
   const [unidadesLocais, setUnidadesLocais] = useState<CentroCusto[]>(subCentrosCusto);
@@ -147,6 +89,114 @@ export function OrcamentoSpreadsheetEditor({
   useEffect(() => {
     setUnidadesLocais(subCentrosCusto);
   }, [subCentrosCusto]);
+
+  useEffect(() => {
+    async function carregarExecucaoEItens() {
+      const execucaoMap = new Map<string, { realizado: number; comprometido: number; saldo: number; percentual: number }>();
+      
+      if (orcamentoId) {
+        try {
+          const exec = await erpRepository.getOrcamentoExecucao(orcamentoId);
+          if (exec && exec.itensExecucao) {
+            exec.itensExecucao.forEach(it => {
+              if (it.itemId) {
+                execucaoMap.set(it.itemId, {
+                  realizado: it.realizadoCentavos,
+                  comprometido: it.comprometidoCentavos,
+                  saldo: it.saldoCentavos,
+                  percentual: it.percentualConsumido
+                });
+              }
+            });
+          }
+        } catch {
+          // Continua com valores padrão se não carregar execução
+        }
+      }
+
+      if (initialItens && initialItens.length > 0) {
+        const convertedRows: GridRowItem[] = initialItens.map((it, idx) => {
+          const vtCentavos = it.valorTotalCentavos || 0;
+          const exec = it.id ? execucaoMap.get(it.id) : undefined;
+          const totalPago = exec ? exec.realizado : 0;
+          const totalComp = exec ? exec.comprometido : 0;
+          const saldo = exec ? exec.saldo : (vtCentavos - totalPago - totalComp);
+          const consumido = totalPago + totalComp;
+          const pct = vtCentavos > 0 ? (consumido / vtCentavos) * 100 : 0;
+
+          return {
+            id: it.id || `row-${Date.now()}-${idx}`,
+            codigo: it.codigo || '',
+            planoContaId: it.planoContaId || it.planoContaNivel2Id || (planosNivel2[0]?.id || ''),
+            centroCustoId: it.centroCustoId,
+            descricao: it.descricao || '',
+            valorEsperadoReais: vtCentavos > 0 ? (vtCentavos / 100).toFixed(2).replace('.', ',') : '',
+            valorEsperadoCentavos: vtCentavos,
+            totalPagoCentavos: totalPago,
+            totalComprometidoCentavos: totalComp,
+            saldoCentavos: saldo,
+            percentualConsumido: pct
+          };
+        });
+        setRows(convertedRows);
+      } else {
+        setRows([criarNovaLinhaVazia()]);
+      }
+    }
+
+    carregarExecucaoEItens();
+  }, [orcamentoId, initialItens]);
+
+  function criarNovaLinhaVazia(): GridRowItem {
+    const pcDef = planosNivel2[0]?.id || '';
+    return {
+      id: `row-${Date.now()}-${Math.random()}`,
+      codigo: '',
+      planoContaId: pcDef,
+      centroCustoId: undefined,
+      descricao: '',
+      valorEsperadoReais: '',
+      valorEsperadoCentavos: 0,
+      totalPagoCentavos: 0,
+      totalComprometidoCentavos: 0,
+      saldoCentavos: 0,
+      percentualConsumido: 0
+    };
+  }
+
+  function handleAddRow() {
+    if (isReadonly) return;
+    setRows(prev => [...prev, criarNovaLinhaVazia()]);
+  }
+
+  function handleRemoveRow(id: string) {
+    if (isReadonly) return;
+    if (rows.length === 1) return;
+    setRows(prev => prev.filter(r => r.id !== id));
+  }
+
+  function handleRowFieldChange(rowId: string, field: keyof GridRowItem, value: any) {
+    if (isReadonly) return;
+
+    setRows(prev => prev.map(row => {
+      if (row.id !== rowId) return row;
+
+      const updated = { ...row, [field]: value };
+
+      if (field === 'valorEsperadoReais') {
+        const rawStr = String(value).replace(/\./g, '').replace(',', '.');
+        const vtNum = parseFloat(rawStr) || 0;
+        updated.valorEsperadoCentavos = Math.round(vtNum * 100);
+        const pago = updated.totalPagoCentavos || 0;
+        const comp = updated.totalComprometidoCentavos || 0;
+        updated.saldoCentavos = updated.valorEsperadoCentavos - pago - comp;
+        const consumido = pago + comp;
+        updated.percentualConsumido = updated.valorEsperadoCentavos > 0 ? (consumido / updated.valorEsperadoCentavos) * 100 : 0;
+      }
+
+      return updated;
+    }));
+  }
 
   async function handleCriarUnidadeRapida(nome: string) {
     if (!nome.trim()) return;
@@ -176,266 +226,20 @@ export function OrcamentoSpreadsheetEditor({
     setCriandoUnidade(false);
   }
 
-  useEffect(() => {
-    if (initialItens && initialItens.length > 0) {
-      const convertedRows: GridRowItem[] = initialItens.map((it, idx) => {
-        const qNum = it.quantidade || 0;
-        const vuNum = it.valorUnitarioCentavos ? it.valorUnitarioCentavos / 100 : 0;
-        const vtCentavos = it.valorTotalCentavos || 0;
-
-        const periodos: GridRowPeriodo[] = listaMeses.map(m => {
-          let vCent = 0;
-          if (it.periodos) {
-            const foundP = it.periodos.find((p: any) => p.mesReferencia.substring(0, 7) === m.mesReferencia.substring(0, 7));
-            if (foundP) vCent = foundP.valorCentavos;
-          } else if (it.distribuicaoMensal) {
-            const key = m.mesReferencia.substring(0, 7);
-            if (it.distribuicaoMensal[key]) vCent = it.distribuicaoMensal[key];
-          }
-
-          return {
-            mesReferencia: m.mesReferencia,
-            rotuloMes: m.rotuloMes,
-            valorReais: vCent > 0 ? (vCent / 100).toFixed(2).replace('.', ',') : '',
-            valorCentavos: vCent
-          };
-        });
-
-        const somaP = periodos.reduce((s, p) => s + p.valorCentavos, 0);
-
-        return {
-          id: it.id || `row-${Date.now()}-${idx}`,
-          codigo: it.codigo || '',
-          planoContaId: it.planoContaId || it.planoContaNivel2Id || (planosNivel2[0]?.id || ''),
-          centroCustoId: it.centroCustoId,
-          descricao: it.descricao || '',
-          quantidade: qNum > 0 ? String(qNum) : '',
-          unidade: it.unidade || 'un',
-          valorUnitarioReais: vuNum > 0 ? vuNum.toFixed(2).replace('.', ',') : '',
-          valorTotalReais: (vtCentavos / 100).toFixed(2).replace('.', ','),
-          valorTotalCentavos: vtCentavos,
-          periodos,
-          somaPeriodosCentavos: somaP,
-          isValid: Math.abs(somaP - vtCentavos) <= 1 // tolera 1 centavo de arredondamento
-        };
-      });
-      setRows(convertedRows);
-    } else {
-      // Cria 1 linha padrão de início
-      setRows([criarNovaLinhaVazia()]);
-    }
-  }, [dataInicio, dataFim, initialItens]);
-
-  function criarNovaLinhaVazia(): GridRowItem {
-    const pcDef = planosNivel2[0]?.id || '';
-    const periodos: GridRowPeriodo[] = listaMeses.map(m => ({
-      mesReferencia: m.mesReferencia,
-      rotuloMes: m.rotuloMes,
-      valorReais: '',
-      valorCentavos: 0
-    }));
-
-    return {
-      id: `row-${Date.now()}-${Math.random()}`,
-      codigo: '',
-      planoContaId: pcDef,
-      // Sem unidade por padrão: o item vale para a obra inteira até que o
-      // usuário o prenda a uma unidade construtiva.
-      centroCustoId: undefined,
-      descricao: '',
-      quantidade: '',
-      unidade: 'un',
-      valorUnitarioReais: '',
-      valorTotalReais: '0,00',
-      valorTotalCentavos: 0,
-      periodos,
-      somaPeriodosCentavos: 0,
-      isValid: true
-    };
-  }
-
-  function handleAddRow() {
-    if (isReadonly) return;
-    setRows(prev => [...prev, criarNovaLinhaVazia()]);
-  }
-
-  function handleRemoveRow(id: string) {
-    if (isReadonly) return;
-    if (rows.length === 1) return;
-    setRows(prev => prev.filter(r => r.id !== id));
-  }
-
-  // Atualização dos campos principais da linha
-  function handleRowFieldChange(rowId: string, field: keyof GridRowItem, value: any) {
-    if (isReadonly) return;
-
-    setRows(prev => prev.map(row => {
-      if (row.id !== rowId) return row;
-
-      const updated = { ...row, [field]: value };
-
-      // Se alterou Qtd ou Vlr Unitario, calcula Vlr Total automaticamente
-      if (field === 'quantidade' || field === 'valorUnitarioReais') {
-        const qNum = parseFloat(String(updated.quantidade).replace(',', '.')) || 0;
-        const vuNum = parseFloat(String(updated.valorUnitarioReais).replace(',', '.')) || 0;
-
-        if (qNum > 0 && vuNum > 0) {
-          const totalCalculado = qNum * vuNum;
-          updated.valorTotalReais = totalCalculado.toFixed(2).replace('.', ',');
-          updated.valorTotalCentavos = Math.round(totalCalculado * 100);
-        }
-      } else if (field === 'valorTotalReais') {
-        const vtNum = parseFloat(String(updated.valorTotalReais).replace(',', '.')) || 0;
-        updated.valorTotalCentavos = Math.round(vtNum * 100);
-      }
-
-      // Revalida a soma dos períodos em relação ao valor total
-      const somaP = updated.periodos.reduce((sum, p) => sum + p.valorCentavos, 0);
-      updated.somaPeriodosCentavos = somaP;
-      updated.isValid = Math.abs(somaP - updated.valorTotalCentavos) <= 1;
-
-      return updated;
-    }));
-  }
-
-  // Atualização do valor de um mês específico
-  function handleMesChange(rowId: string, mesIndex: number, rawVal: string) {
-    if (isReadonly) return;
-
-    setRows(prev => prev.map(row => {
-      if (row.id !== rowId) return row;
-
-      const numVal = parseFloat(rawVal.replace(',', '.')) || 0;
-      const centavos = Math.round(numVal * 100);
-
-      const newPeriodos = [...row.periodos];
-      newPeriodos[mesIndex] = {
-        ...newPeriodos[mesIndex],
-        valorReais: rawVal,
-        valorCentavos: centavos
-      };
-
-      const somaP = newPeriodos.reduce((sum, p) => sum + p.valorCentavos, 0);
-      const isValid = Math.abs(somaP - row.valorTotalCentavos) <= 1;
-
-      return {
-        ...row,
-        periodos: newPeriodos,
-        somaPeriodosCentavos: somaP,
-        isValid
-      };
-    }));
-  }
-
-  // DISTRIBUIÇÃO LINEAR (Divisão igual em N meses)
-  function handleDistribuirLinear(rowId: string) {
-    if (isReadonly) return;
-
-    setRows(prev => prev.map(row => {
-      if (row.id !== rowId) return row;
-      if (row.valorTotalCentavos <= 0 || row.periodos.length === 0) return row;
-
-      const n = row.periodos.length;
-      const valorBaseCentavos = Math.floor(row.valorTotalCentavos / n);
-      let restoCentavos = row.valorTotalCentavos - (valorBaseCentavos * n);
-
-      const newPeriodos = row.periodos.map((p, idx) => {
-        // Adiciona 1 centavo aos últimos meses se houver resto de arredondamento
-        const vCent = valorBaseCentavos + (idx >= n - restoCentavos ? 1 : 0);
-        return {
-          ...p,
-          valorCentavos: vCent,
-          valorReais: (vCent / 100).toFixed(2).replace('.', ',')
-        };
-      });
-
-      const somaP = newPeriodos.reduce((s, p) => s + p.valorCentavos, 0);
-
-      return {
-        ...row,
-        periodos: newPeriodos,
-        somaPeriodosCentavos: somaP,
-        isValid: true
-      };
-    }));
-  }
-
-  // DISTRIBUIÇÃO POR CURVA S (Sigmoide)
-  function handleDistribuirCurvaS(rowId: string) {
-    if (isReadonly) return;
-
-    setRows(prev => prev.map(row => {
-      if (row.id !== rowId) return row;
-      if (row.valorTotalCentavos <= 0 || row.periodos.length === 0) return row;
-
-      const pesos = calcularPesosCurvaS(row.periodos.length);
-      let somaDistribuida = 0;
-
-      const newPeriodos = row.periodos.map((p, idx) => {
-        let vCent = 0;
-        if (idx === row.periodos.length - 1) {
-          // Ajuste fino no último mês para fechar 100%
-          vCent = row.valorTotalCentavos - somaDistribuida;
-        } else {
-          vCent = Math.round(row.valorTotalCentavos * pesos[idx]);
-          somaDistribuida += vCent;
-        }
-
-        return {
-          ...p,
-          valorCentavos: Math.max(0, vCent),
-          valorReais: (Math.max(0, vCent) / 100).toFixed(2).replace('.', ',')
-        };
-      });
-
-      const somaP = newPeriodos.reduce((s, p) => s + p.valorCentavos, 0);
-
-      return {
-        ...row,
-        periodos: newPeriodos,
-        somaPeriodosCentavos: somaP,
-        isValid: true
-      };
-    }));
-  }
-
-  // Validação Geral de todas as linhas
-  const temLinhaInvalida = rows.some(r => !r.isValid);
-  const totalGeralOrcadoCentavos = rows.reduce((s, r) => s + r.valorTotalCentavos, 0);
-
-  // Somatório por coluna mensal
-  const totaisMensaisCentavos = listaMeses.map((_, mIdx) => {
-    return rows.reduce((sum, r) => sum + (r.periodos[mIdx]?.valorCentavos || 0), 0);
-  });
-
   async function handleSalvarSubmit() {
     if (isReadonly) return;
-    if (temLinhaInvalida) {
-      alert('Existem linhas em vermelho com a soma dos meses divergente do valor total. Ajuste a distribuição mensal antes de salvar.');
-      return;
-    }
 
     setSaving(true);
     try {
+      const pcPadrao = planosNivel2[0]?.id || '';
       const payload = rows.map(r => ({
-        /*
-         * Devolver o id é o que faz o repositório ATUALIZAR o item em vez de
-         * apagar e recriar. Sem ele, cada salvamento geraria um id novo e a
-         * apropriação de títulos que aponta para o item ficaria órfã.
-         */
         id: r.id,
         codigo: r.codigo.trim() || undefined,
-        planoContaId: r.planoContaId,
+        planoContaId: r.planoContaId || pcPadrao,
         centroCustoId: r.centroCustoId || undefined,
-        descricao: r.descricao,
-        quantidade: parseFloat(r.quantidade.replace(',', '.')) || undefined,
-        unidade: r.unidade || undefined,
-        valorUnitarioCentavos: Math.round((parseFloat(r.valorUnitarioReais.replace(',', '.')) || 0) * 100) || undefined,
-        valorTotalCentavos: r.valorTotalCentavos,
-        periodos: r.periodos.map(p => ({
-          mesReferencia: p.mesReferencia,
-          valorCentavos: p.valorCentavos
-        }))
+        descricao: r.descricao.trim() || 'Item Orçado',
+        valorTotalCentavos: r.valorEsperadoCentavos,
+        periodos: []
       }));
 
       await onSave(payload);
@@ -445,13 +249,25 @@ export function OrcamentoSpreadsheetEditor({
     setSaving(false);
   }
 
+  // Totais Gerais
+  const totalGeralEsperadoCentavos = rows.reduce((s, r) => s + r.valorEsperadoCentavos, 0);
+  const totalGeralPagoCentavos = rows.reduce((s, r) => s + (r.totalPagoCentavos || 0), 0);
+  const totalGeralComprometidoCentavos = rows.reduce((s, r) => s + (r.totalComprometidoCentavos || 0), 0);
+  const totalGeralSaldoCentavos = totalGeralEsperadoCentavos - totalGeralPagoCentavos - totalGeralComprometidoCentavos;
+
+  function getSemaforoBadge(pct: number) {
+    if (pct > 100) return <span className="text-[10px] font-bold text-rose-700 bg-rose-100 px-2 py-0.5 rounded-md border border-rose-200">🔴 Estourado</span>;
+    if (pct >= 80) return <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-md border border-amber-200">🟡 Alerta</span>;
+    return <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md border border-emerald-200">🟢 Normal</span>;
+  }
+
   return (
     <div className="space-y-4">
       {/* BARRA DE AÇÕES DO EDITOR */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-surface-muted p-4 rounded-2xl border border-black/5">
         <div className="flex items-center gap-3">
           <span className="text-xs font-bold uppercase tracking-wider text-ink-primary flex items-center gap-1.5">
-            Editor Grid em Planilha
+            Orçamento de Obra (Valor Esperado)
             {isReadonly && (
               <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded-md text-[10px] font-bold flex items-center gap-1 border border-amber-200">
                 <Lock className="w-3 h-3" />
@@ -460,7 +276,7 @@ export function OrcamentoSpreadsheetEditor({
             )}
           </span>
           <span className="text-xs text-ink-muted">
-            • <strong>{rows.length}</strong> itens • Total Geral: <strong className="text-brand font-mono">{formatCurrency(totalGeralOrcadoCentavos)}</strong>
+            • <strong>{rows.length}</strong> itens • Total Esperado: <strong className="text-brand font-mono">{formatCurrency(totalGeralEsperadoCentavos)}</strong>
           </span>
         </div>
 
@@ -470,7 +286,7 @@ export function OrcamentoSpreadsheetEditor({
               <button
                 type="button"
                 onClick={() => setModalNovaUnidadeOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-surface border border-purple-200 text-purple-700 hover:bg-purple-50 rounded-xl text-xs font-semibold shadow-soft transition-all"
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-surface border border-purple-200 text-purple-700 hover:bg-purple-50 rounded-xl text-xs font-semibold shadow-soft transition-all"
                 title="Cadastrar nova Unidade Construtiva para esta obra"
               >
                 <Building2 className="w-4 h-4 text-purple-600" />
@@ -480,7 +296,7 @@ export function OrcamentoSpreadsheetEditor({
               <button
                 type="button"
                 onClick={handleAddRow}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-surface border border-black/10 text-ink-primary hover:bg-black/5 rounded-xl text-xs font-semibold shadow-soft transition-all"
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-surface border border-black/10 text-ink-primary hover:bg-black/5 rounded-xl text-xs font-semibold shadow-soft transition-all"
               >
                 <Plus className="w-4 h-4 text-brand" />
                 <span>Adicionar Linha</span>
@@ -492,7 +308,7 @@ export function OrcamentoSpreadsheetEditor({
             <button
               type="button"
               onClick={onCancel}
-              className="px-4 py-1.5 bg-surface border border-black/10 text-ink-muted hover:text-ink-primary rounded-xl text-xs font-semibold"
+              className="px-4 py-2 bg-surface border border-black/10 text-ink-muted hover:text-ink-primary rounded-xl text-xs font-semibold"
             >
               Cancelar
             </button>
@@ -502,12 +318,8 @@ export function OrcamentoSpreadsheetEditor({
             <button
               type="button"
               onClick={handleSalvarSubmit}
-              disabled={saving || temLinhaInvalida}
-              className={`flex items-center gap-1.5 px-5 py-1.5 rounded-xl text-xs font-semibold shadow-md transition-all ${
-                temLinhaInvalida 
-                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
-                  : 'bg-brand hover:bg-brand-hover text-white'
-              }`}
+              disabled={saving}
+              className="flex items-center gap-1.5 px-5 py-2 bg-brand hover:bg-brand-hover text-white rounded-xl text-xs font-semibold shadow-md transition-all active:scale-[0.98]"
             >
               <Save className="w-4 h-4" />
               <span>{saving ? 'Salvando...' : 'Salvar Orçamento'}</span>
@@ -516,262 +328,181 @@ export function OrcamentoSpreadsheetEditor({
         </div>
       </div>
 
-      {/* AVISO DE ERRO EM VERMELHO SE HOUVER LINHA DIVERGENTE */}
-      {temLinhaInvalida && !isReadonly && (
-        <div className="p-3 bg-rose-50 text-rose-700 border border-rose-200 rounded-xl text-xs font-semibold flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-rose-600" />
-            <span>Existem linhas com divergência entre o Valor Esperado e a soma da distribuição mensal. Ajuste as células ou use o botão de distribuição automática.</span>
-          </div>
-        </div>
-      )}
-
-      {/* GRID INTERATIVO TIPO PLANILHA */}
+      {/* GRID INTERATIVO LIMPO */}
       <div className="bg-surface rounded-2xl shadow-soft border border-black/[0.06] overflow-x-auto">
         <table className="w-full text-left text-xs border-collapse">
           <thead>
             <tr className="bg-surface-muted border-b border-black/10 text-[11px] font-bold text-ink-muted uppercase sticky top-0 z-10">
-              <th className="p-2.5 w-24">Código</th>
-              <th className="p-2.5 min-w-[170px]">Unidade Construtiva</th>
-              <th className="p-2.5 min-w-[200px]">Plano Financeiro (Nível 2)</th>
-              <th className="p-2.5 min-w-[170px]">Item do Orçamento</th>
-              <th className="p-2.5 w-20 text-right">Qtd</th>
-              <th className="p-2.5 w-16 text-center">Unid</th>
-              <th className="p-2.5 w-24 text-right">Vlr Unit (R$)</th>
-              <th className="p-2.5 w-32 text-right text-brand" title="Valor total previsto orçado pelo engenheiro responsável">
+              <th className="p-3 w-28">Código</th>
+              <th className="p-3 min-w-[200px]">Unidade Construtiva</th>
+              <th className="p-3 min-w-[260px]">Item do Orçamento</th>
+              <th className="p-3 w-40 text-right text-brand font-bold" title="Valor total previsto cadastrado pelo engenheiro">
                 Valor Esperado (R$)
               </th>
-              <th className="p-2.5 w-28 text-center bg-black/5">Distribuição</th>
-              {/* COLUNAS MENSAIS DINÂMICAS */}
-              {listaMeses.map(m => (
-                <th key={m.mesReferencia} className="p-2.5 w-28 text-right bg-brand/5 border-l border-black/5">
-                  {m.rotuloMes}
-                </th>
-              ))}
-              {!isReadonly && <th className="p-2.5 w-12 text-center">Ações</th>}
+              <th className="p-3 w-36 text-right text-emerald-700 bg-emerald-50/50">Total Pago (R$)</th>
+              <th className="p-3 w-36 text-right text-amber-700 bg-amber-50/50">A Pagar (R$)</th>
+              <th className="p-3 w-40 text-right text-ink-primary font-bold">Saldo em Aberto (R$)</th>
+              <th className="p-3 w-32 text-center">% Consumido</th>
+              {!isReadonly && <th className="p-3 w-14 text-center">Ações</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-black/5 font-medium">
-            {rows.map((row, rIdx) => (
-              <tr 
-                key={row.id} 
-                className={`transition-colors ${
-                  !row.isValid ? 'bg-rose-50/50' : rIdx % 2 === 0 ? 'bg-surface' : 'bg-surface-muted/30'
-                }`}
-              >
-                {/* 1. Código do item */}
-                <td className="p-2">
-                  {isReadonly ? (
-                    <span className="font-mono font-bold text-ink-primary">{row.codigo || '-'}</span>
-                  ) : (
-                    <input
-                      type="text"
-                      placeholder="1.1.3"
-                      value={row.codigo}
-                      onChange={(e) => handleRowFieldChange(row.id, 'codigo', e.target.value)}
-                      className="w-full bg-surface border border-black/10 rounded-lg px-2 py-1 text-xs font-mono font-bold text-ink-primary focus:ring-2 focus:ring-brand"
-                    />
-                  )}
-                </td>
+            {rows.map((row, rIdx) => {
+              const pago = row.totalPagoCentavos || 0;
+              const comp = row.totalComprometidoCentavos || 0;
+              const saldo = row.saldoCentavos ?? (row.valorEsperadoCentavos - pago - comp);
+              const pct = row.percentualConsumido || 0;
 
-                {/* 2. Unidade Construtiva */}
-                <td className="p-2">
-                  {isReadonly ? (
-                    <span className="text-ink-primary font-semibold">
-                      {unidadesLocais.find(c => c.id === row.centroCustoId)?.nome || 'Toda a obra'}
-                    </span>
-                  ) : (
-                    <select
-                      value={row.centroCustoId || ''}
-                      onChange={(e) => handleRowFieldChange(row.id, 'centroCustoId', e.target.value)}
-                      className="w-full bg-surface border border-black/10 rounded-lg px-2 py-1 text-xs font-semibold text-ink-primary focus:ring-2 focus:ring-brand"
-                    >
-                      <option value="">Toda a obra</option>
-                      {unidadesLocais.map(c => (
-                        <option key={c.id} value={c.id}>{c.codigo} - {c.nome}</option>
-                      ))}
-                    </select>
-                  )}
-                </td>
-
-                {/* 3. Plano de Contas Nível 2 */}
-                <td className="p-2">
-                  {isReadonly ? (
-                    <span className="font-bold text-ink-primary font-mono">
-                      {planosNivel2.find(p => p.id === row.planoContaId)?.codigo} - {planosNivel2.find(p => p.id === row.planoContaId)?.nome}
-                    </span>
-                  ) : (
-                    <select
-                      value={row.planoContaId}
-                      onChange={(e) => handleRowFieldChange(row.id, 'planoContaId', e.target.value)}
-                      className="w-full bg-surface border border-black/10 rounded-lg px-2 py-1 text-xs font-bold text-ink-primary focus:ring-2 focus:ring-brand"
-                    >
-                      {planosNivel2.map(pc => (
-                        <option key={pc.id} value={pc.id}>{pc.codigo} - {pc.nome}</option>
-                      ))}
-                    </select>
-                  )}
-                </td>
-
-                {/* 4. Item do Orçamento (Descrição) */}
-                <td className="p-2">
-                  {isReadonly ? (
-                    <span className="text-ink-primary">{row.descricao || '-'}</span>
-                  ) : (
-                    <input
-                      type="text"
-                      placeholder="Ex: Folha Mão de Obra, Concreto, ISS..."
-                      value={row.descricao}
-                      onChange={(e) => handleRowFieldChange(row.id, 'descricao', e.target.value)}
-                      className="w-full bg-surface border border-black/10 rounded-lg px-2 py-1 text-xs text-ink-primary focus:ring-2 focus:ring-brand"
-                    />
-                  )}
-                </td>
-
-                {/* 3. Quantidade */}
-                <td className="p-2 text-right">
-                  {isReadonly ? (
-                    <span>{row.quantidade || '-'}</span>
-                  ) : (
-                    <input
-                      type="text"
-                      placeholder="0"
-                      value={row.quantidade}
-                      onChange={(e) => handleRowFieldChange(row.id, 'quantidade', e.target.value)}
-                      className="w-full text-right bg-surface border border-black/10 rounded-lg px-2 py-1 text-xs text-ink-primary focus:ring-2 focus:ring-brand"
-                    />
-                  )}
-                </td>
-
-                {/* 4. Unidade */}
-                <td className="p-2 text-center">
-                  {isReadonly ? (
-                    <span>{row.unidade}</span>
-                  ) : (
-                    <input
-                      type="text"
-                      placeholder="m²"
-                      value={row.unidade}
-                      onChange={(e) => handleRowFieldChange(row.id, 'unidade', e.target.value)}
-                      className="w-full text-center bg-surface border border-black/10 rounded-lg px-1.5 py-1 text-xs text-ink-primary focus:ring-2 focus:ring-brand"
-                    />
-                  )}
-                </td>
-
-                {/* 5. Valor Unitário */}
-                <td className="p-2 text-right font-mono">
-                  {isReadonly ? (
-                    <span>{row.valorUnitarioReais ? `R$ ${row.valorUnitarioReais}` : '-'}</span>
-                  ) : (
-                    <input
-                      type="text"
-                      placeholder="0,00"
-                      value={row.valorUnitarioReais}
-                      onChange={(e) => handleRowFieldChange(row.id, 'valorUnitarioReais', e.target.value)}
-                      className="w-full text-right bg-surface border border-black/10 rounded-lg px-2 py-1 text-xs font-mono text-ink-primary focus:ring-2 focus:ring-brand"
-                    />
-                  )}
-                </td>
-
-                {/* 6. Valor Total (Calculado / Digitado) */}
-                <td className="p-2 text-right font-mono font-bold">
-                  {isReadonly ? (
-                    <span className="text-brand">{formatCurrency(row.valorTotalCentavos)}</span>
-                  ) : (
-                    <input
-                      type="text"
-                      placeholder="0,00"
-                      value={row.valorTotalReais}
-                      onChange={(e) => handleRowFieldChange(row.id, 'valorTotalReais', e.target.value)}
-                      className="w-full text-right bg-surface border border-black/10 rounded-lg px-2 py-1 text-xs font-bold font-mono text-brand focus:ring-2 focus:ring-brand"
-                    />
-                  )}
-                </td>
-
-                {/* 7. Botões Inteligentes de Distribuição por Linha */}
-                <td className="p-2 text-center bg-black/5">
-                  {!isReadonly && (
-                    <div className="flex items-center justify-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => handleDistribuirLinear(row.id)}
-                        title="Distribuir Linearmente (Divisão Igual)"
-                        className="p-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg transition-all"
-                      >
-                        <Zap className="w-3.5 h-3.5" />
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleDistribuirCurvaS(row.id)}
-                        title="Distribuir por Curva S (Sigmoide Obra)"
-                        className="p-1.5 bg-purple-50 text-purple-600 hover:bg-purple-100 rounded-lg transition-all"
-                      >
-                        <TrendingUp className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  )}
-                </td>
-
-                {/* 8. COLUNAS MENSAIS EDITÁVEIS CÉLULA A CÉLULA */}
-                {row.periodos.map((p, mIdx) => (
-                  <td key={p.mesReferencia} className="p-2 text-right border-l border-black/5 font-mono">
+              return (
+                <tr 
+                  key={row.id} 
+                  className={`transition-colors ${
+                    saldo < 0 ? 'bg-rose-50/40' : rIdx % 2 === 0 ? 'bg-surface' : 'bg-surface-muted/20'
+                  }`}
+                >
+                  {/* 1. Código do item */}
+                  <td className="p-2.5">
                     {isReadonly ? (
-                      <span className={p.valorCentavos > 0 ? 'text-ink-primary font-bold' : 'text-ink-muted/40'}>
-                        {p.valorCentavos > 0 ? formatCurrency(p.valorCentavos) : '-'}
+                      <span className="font-mono font-bold text-ink-primary">{row.codigo || '-'}</span>
+                    ) : (
+                      <input
+                        type="text"
+                        placeholder="1.1"
+                        value={row.codigo}
+                        onChange={(e) => handleRowFieldChange(row.id, 'codigo', e.target.value)}
+                        className="w-full bg-surface border border-black/10 rounded-lg px-2 py-1.5 text-xs font-mono font-bold text-ink-primary focus:ring-2 focus:ring-brand"
+                      />
+                    )}
+                  </td>
+
+                  {/* 2. Unidade Construtiva */}
+                  <td className="p-2.5">
+                    {isReadonly ? (
+                      <span className="text-ink-primary font-bold">
+                        {unidadesLocais.find(c => c.id === row.centroCustoId)?.nome || 'Toda a obra'}
                       </span>
+                    ) : (
+                      <select
+                        value={row.centroCustoId || ''}
+                        onChange={(e) => handleRowFieldChange(row.id, 'centroCustoId', e.target.value)}
+                        className="w-full bg-surface border border-black/10 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-ink-primary focus:ring-2 focus:ring-brand"
+                      >
+                        <option value="">Toda a obra</option>
+                        {unidadesLocais.map(c => (
+                          <option key={c.id} value={c.id}>{c.codigo} - {c.nome}</option>
+                        ))}
+                      </select>
+                    )}
+                  </td>
+
+                  {/* 3. Item do Orçamento */}
+                  <td className="p-2.5">
+                    {isReadonly ? (
+                      <span className="text-ink-primary font-semibold">{row.descricao || '-'}</span>
+                    ) : (
+                      <input
+                        type="text"
+                        placeholder="Ex: CARRO + COMBUSTÍVEL, MÃO DE OBRA, CONCRETO..."
+                        value={row.descricao}
+                        onChange={(e) => handleRowFieldChange(row.id, 'descricao', e.target.value)}
+                        className="w-full bg-surface border border-black/10 rounded-lg px-2.5 py-1.5 text-xs font-medium text-ink-primary focus:ring-2 focus:ring-brand"
+                      />
+                    )}
+                  </td>
+
+                  {/* 4. Valor Esperado (R$) */}
+                  <td className="p-2.5 text-right font-mono font-bold">
+                    {isReadonly ? (
+                      <span className="text-brand">{formatCurrency(row.valorEsperadoCentavos)}</span>
                     ) : (
                       <input
                         type="text"
                         placeholder="0,00"
-                        value={p.valorReais}
-                        onChange={(e) => handleMesChange(row.id, mIdx, e.target.value)}
-                        className={`w-full text-right border rounded-lg px-2 py-1 text-xs font-mono transition-all ${
-                          p.valorCentavos > 0 
-                            ? 'bg-surface font-bold text-ink-primary border-black/10' 
-                            : 'bg-surface-muted/50 text-ink-muted border-black/5'
-                        }`}
+                        value={row.valorEsperadoReais}
+                        onChange={(e) => handleRowFieldChange(row.id, 'valorEsperadoReais', e.target.value)}
+                        className="w-full text-right bg-surface border border-brand/30 rounded-lg px-2.5 py-1.5 text-xs font-bold font-mono text-brand focus:ring-2 focus:ring-brand shadow-xs"
                       />
                     )}
                   </td>
-                ))}
 
-                {/* Coluna Ações (Excluir linha) */}
-                {!isReadonly && (
-                  <td className="p-2 text-center">
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveRow(row.id)}
-                      title="Excluir Linha"
-                      className="p-1 text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                  {/* 5. Total Pago (R$) */}
+                  <td className="p-2.5 text-right font-mono font-bold text-emerald-700 bg-emerald-50/20">
+                    {formatCurrency(pago)}
                   </td>
-                )}
-              </tr>
-            ))}
+
+                  {/* 6. A Pagar (R$) */}
+                  <td className="p-2.5 text-right font-mono font-bold text-amber-700 bg-amber-50/20">
+                    {formatCurrency(comp)}
+                  </td>
+
+                  {/* 7. Saldo em Aberto / Restante (R$) */}
+                  <td className={`p-2.5 text-right font-mono font-bold ${
+                    saldo < 0 ? 'text-rose-600' : 'text-ink-primary'
+                  }`}>
+                    {formatCurrency(saldo)}
+                  </td>
+
+                  {/* 8. % Consumido & Status */}
+                  <td className="p-2.5 text-center">
+                    <div className="flex flex-col items-center gap-1">
+                      <div className="flex items-center justify-between w-full text-[10px] font-bold font-mono">
+                        <span>{pct.toFixed(1)}%</span>
+                        {getSemaforoBadge(pct)}
+                      </div>
+                      <div className="w-full bg-black/5 rounded-full h-1.5 overflow-hidden">
+                        <div 
+                          className={`h-full ${
+                            pct > 100 ? 'bg-rose-500' : pct >= 80 ? 'bg-amber-500' : 'bg-emerald-500'
+                          }`}
+                          style={{ width: `${Math.min(100, pct)}%` }}
+                        />
+                      </div>
+                    </div>
+                  </td>
+
+                  {/* Coluna Ações */}
+                  {!isReadonly && (
+                    <td className="p-2.5 text-center">
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveRow(row.id)}
+                        title="Excluir Linha"
+                        className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
           </tbody>
 
           {/* RODAPÉ COM TOTAIS CONSOLIDADOS */}
           <tfoot>
             <tr className="bg-surface-muted border-t-2 border-black/10 font-mono font-bold text-xs">
-              {/* 7 = Código, Unidade Construtiva, Plano Financeiro, Descrição, Qtd,
-                  Unid, Vlr Unit. Ficou em 5 quando as duas primeiras colunas
-                  foram acrescentadas, e todos os totais saíam duas colunas à
-                  esquerda do seu cabeçalho. */}
-              <td colSpan={7} className="p-3 text-right uppercase text-ink-muted">
+              <td colSpan={3} className="p-3.5 text-right uppercase text-ink-muted">
                 Totais Consolidados:
               </td>
-              <td className="p-3 text-right text-brand text-sm">
-                {formatCurrency(totalGeralOrcadoCentavos)}
+              <td className="p-3.5 text-right text-brand text-sm">
+                {formatCurrency(totalGeralEsperadoCentavos)}
               </td>
-              <td className="p-3 bg-black/5"></td>
-              {totaisMensaisCentavos.map((valCentavos, idx) => (
-                <td key={idx} className="p-3 text-right text-ink-primary border-l border-black/5">
-                  {formatCurrency(valCentavos)}
-                </td>
-              ))}
+              <td className="p-3.5 text-right text-emerald-700 bg-emerald-50/40 text-sm">
+                {formatCurrency(totalGeralPagoCentavos)}
+              </td>
+              <td className="p-3.5 text-right text-amber-700 bg-amber-50/40 text-sm">
+                {formatCurrency(totalGeralComprometidoCentavos)}
+              </td>
+              <td className={`p-3.5 text-right text-sm ${
+                totalGeralSaldoCentavos < 0 ? 'text-rose-600' : 'text-ink-primary'
+              }`}>
+                {formatCurrency(totalGeralSaldoCentavos)}
+              </td>
+              <td className="p-3.5 text-center">
+                {totalGeralEsperadoCentavos > 0
+                  ? `${(((totalGeralPagoCentavos + totalGeralComprometidoCentavos) / totalGeralEsperadoCentavos) * 100).toFixed(1)}%`
+                  : '0.0%'}
+              </td>
               {!isReadonly && <td></td>}
             </tr>
           </tfoot>

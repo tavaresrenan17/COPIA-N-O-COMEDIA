@@ -274,9 +274,8 @@ export function AcompanhamentoOrcamentarioView() {
                 <thead>
                   <tr className="bg-surface-muted text-[11px] font-bold text-ink-muted uppercase border-b border-black/10">
                     <th className="py-3 px-3 w-10"></th>
-                    <th className="py-3 px-3 min-w-[140px]">Unidade Construtiva</th>
-                    <th className="py-3 px-3 min-w-[180px]">Item do Orçamento</th>
-                    <th className="py-3 px-3 min-w-[160px]">Plano Financeiro</th>
+                    <th className="py-3 px-3 min-w-[150px]">Unidade Construtiva</th>
+                    <th className="py-3 px-3 min-w-[220px]">Item do Orçamento</th>
                     <th className="py-3 px-3 text-right">Valor Esperado (R$)</th>
                     {compararV1 && (
                       <>
@@ -285,9 +284,9 @@ export function AcompanhamentoOrcamentarioView() {
                         <th className="py-3 px-3 text-right bg-purple-50 text-purple-700">Variação %</th>
                       </>
                     )}
-                    <th className="py-3 px-3 text-right text-amber-600">Comprometido</th>
-                    <th className="py-3 px-3 text-right text-emerald-600">Realizado</th>
-                    <th className="py-3 px-3 text-right">Saldo Restante (R$)</th>
+                    <th className="py-3 px-3 text-right text-emerald-700 bg-emerald-50/40">Total Pago (R$)</th>
+                    <th className="py-3 px-3 text-right text-amber-700 bg-amber-50/40">A Pagar (R$)</th>
+                    <th className="py-3 px-3 text-right font-bold">Saldo Restante (R$)</th>
                     <th className="py-3 px-3 text-center min-w-[140px]">% Consumido</th>
                   </tr>
                 </thead>
@@ -329,11 +328,6 @@ export function AcompanhamentoOrcamentarioView() {
                             </div>
                           </td>
 
-                          {/* Plano Financeiro */}
-                          <td className="py-3 px-3 text-ink-muted">
-                            <span className="font-mono text-[11px] font-semibold">{it.planoContaNivel2Codigo}</span> - {it.planoContaNivel2Nome}
-                          </td>
-
                           {/* Valor Esperado */}
                           <td className="py-3 px-3 text-right font-mono font-bold text-ink-primary">
                             {formatCurrency(it.orcadoCentavos)}
@@ -344,25 +338,25 @@ export function AcompanhamentoOrcamentarioView() {
                               <td className="py-3 px-3 text-right font-mono text-purple-700 bg-purple-50/30">
                                 {formatCurrency(it.orcadoV1Centavos || 0)}
                               </td>
-                              <td className={`py-3 px-3 text-right font-mono font-bold bg-purple-50/30 ${
+                              <td className={`py-3.5 px-3 text-right font-mono font-bold bg-purple-50/30 ${
                                 (it.variacaoReaisCentavos || 0) > 0 ? 'text-rose-600' : 'text-emerald-600'
                               }`}>
                                 {formatCurrency(it.variacaoReaisCentavos || 0)}
                               </td>
-                              <td className="py-3 px-3 text-right font-mono text-xs font-bold bg-purple-50/30">
+                              <td className="py-3.5 px-3 text-right font-mono text-xs font-bold bg-purple-50/30">
                                 {(it.variacaoPercentual || 0).toFixed(1)}%
                               </td>
                             </>
                           )}
 
-                          {/* Comprometido */}
-                          <td className="py-3 px-3 text-right font-mono text-amber-600 font-bold">
-                            {formatCurrency(it.comprometidoCentavos)}
+                          {/* Realizado (Total Pago) */}
+                          <td className="py-3 px-3 text-right font-mono text-emerald-700 font-bold bg-emerald-50/20">
+                            {formatCurrency(it.realizadoCentavos)}
                           </td>
 
-                          {/* Realizado */}
-                          <td className="py-3 px-3 text-right font-mono text-emerald-600 font-bold">
-                            {formatCurrency(it.realizadoCentavos)}
+                          {/* Comprometido (A Pagar) */}
+                          <td className="py-3 px-3 text-right font-mono text-amber-700 font-bold bg-amber-50/20">
+                            {formatCurrency(it.comprometidoCentavos)}
                           </td>
 
                           {/* Saldo Restante */}

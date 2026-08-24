@@ -228,18 +228,12 @@ function OrcamentosPage() {
     csv += `Status;${orc.status}\n`;
     csv += `Período;${orc.dataInicio} a ${orc.dataFim}\n\n`;
 
-    csv += `Código;Unidade Construtiva;Plano Financeiro (Nível 2);Descrição;Quantidade;Unidade;Valor Unitário (R$);Valor Total (R$)\n`;
+    csv += `Código;Unidade Construtiva;Item do Orçamento;Valor Esperado (R$)\n`;
 
     orc.itens?.forEach(it => {
-      const q = it.quantidade || '';
-      const u = it.unidade || '';
-      const vu = it.valorUnitarioCentavos ? (it.valorUnitarioCentavos / 100).toFixed(2).replace('.', ',') : '';
       const vt = (it.valorTotalCentavos / 100).toFixed(2).replace('.', ',');
-
-      // A coluna Código é a do ITEM; antes saía o código do plano de contas,
-      // que já tem coluna própria logo adiante.
       const uc = it.centroCustoNome || 'Toda a obra';
-      csv += `${it.codigo || ''};"${uc}";${it.planoContaCodigo};${it.planoContaNome};"${it.descricao || ''}";${q};${u};${vu};${vt}\n`;
+      csv += `${it.codigo || ''};"${uc}";"${it.descricao || ''}";${vt}\n`;
     });
 
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -276,25 +270,16 @@ function OrcamentosPage() {
             <span>Planilha da Obra</span>
           </button>
 
-          {/*
-            Acompanhamento desligado nesta rodada.
-
-            getOrcamentoExecucao() ainda é servido pelo mock em memória: o
-            cadastro já grava no banco, mas orçado × comprometido × realizado e
-            a Curva S sairiam de dados inventados. Exibir isso ao lado de uma
-            planilha real seria pior do que não exibir.
-
-            Para religar: implemente getOrcamentoExecucao no
-            SupabaseErpRepository e devolva o onClick de setActiveTab.
-          */}
           <button
-            type="button"
-            disabled
-            title="Acompanhamento e Curva S ainda não estão ligados ao banco — em desenvolvimento."
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-ink-muted/50 cursor-not-allowed"
+            onClick={() => setActiveTab('acompanhamento')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+              activeTab === 'acompanhamento' 
+                ? 'bg-brand text-white shadow-md' 
+                : 'text-ink-muted hover:text-ink-primary hover:bg-black/5'
+            }`}
           >
             <TrendingUp className="w-4 h-4" />
-            <span>Acompanhamento &amp; Curva S (em breve)</span>
+            <span>Acompanhamento &amp; Relatórios</span>
           </button>
         </div>
       )}
@@ -362,6 +347,7 @@ function OrcamentosPage() {
             subCentrosCusto={unidadesDaObraAtiva}
             obraId={activeOrcamento.centroCustoId}
             obraNome={activeOrcamento.centroCustoNome}
+            orcamentoId={activeOrcamento.id}
             initialItens={activeOrcamento.itens}
             isReadonly={activeOrcamento.status === 'aprovado'}
             onNovaUnidade={(nova) => setCentrosCusto(prev => [...prev, nova])}

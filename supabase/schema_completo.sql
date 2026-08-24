@@ -151,6 +151,7 @@ CREATE TABLE IF NOT EXISTS public.linha_gestao (
   codigo TEXT NOT NULL,
   nome TEXT NOT NULL,
   descricao TEXT,
+  centro_custo_id UUID REFERENCES public.centro_custo(id) ON DELETE SET NULL,
   ativo BOOLEAN DEFAULT true NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
   updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
@@ -159,6 +160,7 @@ CREATE TABLE IF NOT EXISTS public.linha_gestao (
 );
 
 CREATE INDEX IF NOT EXISTS idx_linha_gestao_grupo ON public.linha_gestao(grupo_gestao_id);
+CREATE INDEX IF NOT EXISTS idx_linha_gestao_centro_custo ON public.linha_gestao(centro_custo_id);
 
 -- ------------------------------------------------------------------------------
 -- 6. TÍTULO (motor financeiro único: 'P' = pagar, 'R' = receber)
@@ -397,6 +399,7 @@ CREATE TABLE IF NOT EXISTS public.orcamento_item (
   orcamento_id UUID NOT NULL REFERENCES public.orcamento(id) ON DELETE CASCADE,
   plano_conta_id UUID NOT NULL REFERENCES public.plano_conta(id),
   centro_custo_id UUID REFERENCES public.centro_custo(id),
+  codigo TEXT,
   descricao TEXT,
   quantidade NUMERIC(15,4),
   unidade TEXT,
@@ -408,6 +411,22 @@ CREATE TABLE IF NOT EXISTS public.orcamento_item (
 );
 
 CREATE INDEX IF NOT EXISTS idx_orcamento_item_orcamento_id ON public.orcamento_item(orcamento_id);
+CREATE INDEX IF NOT EXISTS idx_orcamento_item_centro_custo ON public.orcamento_item(centro_custo_id);
+
+-- Vínculo da Apropriação com o Item de Orçamento
+ALTER TABLE public.titulo_rateio
+  ADD COLUMN IF NOT EXISTS orcamento_item_id UUID REFERENCES public.orcamento_item(id) ON DELETE RESTRICT;
+
+ALTER TABLE public.titulo_rateio DROP CONSTRAINT IF EXISTS uq_parcela_centro_custo;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_parcela_centro_custo_item
+  ON public.titulo_rateio (
+    parcela_id,
+    centro_custo_id,
+    COALESCE(orcamento_item_id, '00000000-0000-0000-0000-000000000000'::uuid)
+  );
+
+CREATE INDEX IF NOT EXISTS idx_titulo_rateio_orcamento_item ON public.titulo_rateio(orcamento_item_id);
 
 CREATE TABLE IF NOT EXISTS public.orcamento_item_periodo (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
