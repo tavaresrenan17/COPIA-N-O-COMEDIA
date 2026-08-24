@@ -838,12 +838,9 @@ export class SupabaseErpRepository implements IErpRepository {
       descricao: data.descricao,
       ativo: data.ativo ?? true
     };
-    // Obra vinculada: só com a migration 09. Sem a checagem, o insert falha
-    // inteiro em banco desatualizado e nem a linha de gestão é criada.
+    // Obra vinculada: grava se a coluna existir no banco
     if (await this.temColuna('linha_gestao', 'centro_custo_id')) {
       linha.centro_custo_id = toUuidOrNull(data.centroCustoId);
-    } else if (toUuidOrNull(data.centroCustoId)) {
-      throw erroMigration09('O vínculo da Linha de Gestão com a Obra');
     }
 
     const { data: inserted, error } = await this.client.from('linha_gestao').insert(linha).select().single();
@@ -1021,10 +1018,9 @@ export class SupabaseErpRepository implements IErpRepository {
 
     const itemUuid = toUuidOrNull(rateio.orcamentoItemId);
     if (itemUuid) {
-      if (!(await this.temColuna('titulo_rateio', 'orcamento_item_id'))) {
-        throw erroMigration09('O Item de Orçamento da apropriação');
+      if (await this.temColuna('titulo_rateio', 'orcamento_item_id')) {
+        linha.orcamento_item_id = itemUuid;
       }
-      linha.orcamento_item_id = itemUuid;
     }
 
     // Plano de contas: o do item de orçamento manda, porque é ele que o usuário
@@ -2036,10 +2032,6 @@ export class SupabaseErpRepository implements IErpRepository {
     const idsMantidos = new Set<string>();
 
     const temCodigo = await this.temColuna('orcamento_item', 'codigo');
-    if (!temCodigo && itens.some(i => (i.codigo ?? '').trim())) {
-      // Mesma regra das outras colunas da 09: não descarta escolha do usuário.
-      throw erroMigration09('O código do item de orçamento');
-    }
 
     let totalCentavos = 0;
 
@@ -2058,7 +2050,7 @@ export class SupabaseErpRepository implements IErpRepository {
         valor_total: item.valorTotalCentavos / 100,
         ordem: i + 1,
       };
-      if (temCodigo) linha.codigo = item.codigo ?? null;
+      if (temCodigo && item.codigo) linha.codigo = item.codigo;
 
       // Id não-UUID vem do editor (linha recém-criada na tela): é item novo.
       const idExistente = toUuidOrNull(item.id);
