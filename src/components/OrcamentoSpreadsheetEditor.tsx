@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { PlanoConta, CentroCusto } from '@/data';
+import { PlanoConta, CentroCusto, erpRepository } from '@/data';
 import { formatCurrency } from '@/lib/formatters';
+import { proximoCodigo } from '@/lib/codigos';
 import { 
   Plus, 
   Trash2, 
@@ -13,7 +14,10 @@ import {
   Lock, 
   Save, 
   X,
-  HelpCircle
+  HelpCircle,
+  Building2,
+  Sparkles,
+  Check
 } from 'lucide-react';
 
 export interface GridRowPeriodo {
@@ -47,8 +51,11 @@ interface OrcamentoSpreadsheetEditorProps {
   planosNivel2: PlanoConta[];
   /** Unidades Construtivas da obra deste orçamento (filhas dela na árvore). */
   subCentrosCusto?: CentroCusto[];
+  obraId?: string;
+  obraNome?: string;
   initialItens?: any[];
   isReadonly?: boolean;
+  onNovaUnidade?: (nova: CentroCusto) => void;
   onSave: (itens: {
     /** Id do item já gravado; ausente/não-UUID = linha nova. */
     id?: string;
@@ -121,14 +128,53 @@ export function OrcamentoSpreadsheetEditor({
   dataFim,
   planosNivel2,
   subCentrosCusto = [],
+  obraId,
+  obraNome,
   initialItens = [],
   isReadonly = false,
+  onNovaUnidade,
   onSave,
   onCancel
 }: OrcamentoSpreadsheetEditorProps) {
   const listaMeses = gerarListaMeses(dataInicio, dataFim);
   const [rows, setRows] = useState<GridRowItem[]>([]);
   const [saving, setSaving] = useState(false);
+  const [unidadesLocais, setUnidadesLocais] = useState<CentroCusto[]>(subCentrosCusto);
+  const [modalNovaUnidadeOpen, setModalNovaUnidadeOpen] = useState(false);
+  const [nomeNovaUnidade, setNomeNovaUnidade] = useState('');
+  const [criandoUnidade, setCriandoUnidade] = useState(false);
+
+  useEffect(() => {
+    setUnidadesLocais(subCentrosCusto);
+  }, [subCentrosCusto]);
+
+  async function handleCriarUnidadeRapida(nome: string) {
+    if (!nome.trim()) return;
+    setCriandoUnidade(true);
+    try {
+      const todos = await erpRepository.getCentrosCusto({ apenasAtivos: false });
+      const parentObra = obraId ? todos.find(c => c.id === obraId) : null;
+      const cod = proximoCodigo(todos, parentObra as any);
+
+      const nova = await erpRepository.createCentroCusto({
+        codigo: cod,
+        nome: nome.trim(),
+        parentId: obraId || undefined,
+        tipo: 'obra',
+        nivel: parentObra ? parentObra.nivel + 1 : 1,
+        aceitaLancamento: true,
+        ativo: true,
+      });
+
+      setUnidadesLocais(prev => [...prev, nova]);
+      if (onNovaUnidade) onNovaUnidade(nova);
+      setNomeNovaUnidade('');
+      setModalNovaUnidadeOpen(false);
+    } catch (err: any) {
+      alert(err.message || 'Erro ao criar unidade construtiva.');
+    }
+    setCriandoUnidade(false);
+  }
 
   useEffect(() => {
     if (initialItens && initialItens.length > 0) {
@@ -420,14 +466,26 @@ export function OrcamentoSpreadsheetEditor({
 
         <div className="flex items-center gap-2">
           {!isReadonly && (
-            <button
-              type="button"
-              onClick={handleAddRow}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-surface border border-black/10 text-ink-primary hover:bg-black/5 rounded-xl text-xs font-semibold shadow-soft transition-all"
-            >
-              <Plus className="w-4 h-4 text-brand" />
-              <span>Adicionar Linha</span>
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => setModalNovaUnidadeOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-surface border border-purple-200 text-purple-700 hover:bg-purple-50 rounded-xl text-xs font-semibold shadow-soft transition-all"
+                title="Cadastrar nova Unidade Construtiva para esta obra"
+              >
+                <Building2 className="w-4 h-4 text-purple-600" />
+                <span>+ Nova Unidade</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleAddRow}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-surface border border-black/10 text-ink-primary hover:bg-black/5 rounded-xl text-xs font-semibold shadow-soft transition-all"
+              >
+                <Plus className="w-4 h-4 text-brand" />
+                <span>Adicionar Linha</span>
+              </button>
+            </>
           )}
 
           {onCancel && (
@@ -463,7 +521,7 @@ export function OrcamentoSpreadsheetEditor({
         <div className="p-3 bg-rose-50 text-rose-700 border border-rose-200 rounded-xl text-xs font-semibold flex items-center justify-between">
           <div className="flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 text-rose-600" />
-            <span>Existem linhas com divergência entre o Valor Total e a soma da distribuição mensal. Ajuste as células ou use o botão de distribuição automática.</span>
+            <span>Existem linhas com divergência entre o Valor Esperado e a soma da distribuição mensal. Ajuste as células ou use o botão de distribuição automática.</span>
           </div>
         </div>
       )}
@@ -476,11 +534,13 @@ export function OrcamentoSpreadsheetEditor({
               <th className="p-2.5 w-24">Código</th>
               <th className="p-2.5 min-w-[170px]">Unidade Construtiva</th>
               <th className="p-2.5 min-w-[200px]">Plano Financeiro (Nível 2)</th>
-              <th className="p-2.5 min-w-[160px]">Descrição do Item</th>
+              <th className="p-2.5 min-w-[170px]">Item do Orçamento</th>
               <th className="p-2.5 w-20 text-right">Qtd</th>
               <th className="p-2.5 w-16 text-center">Unid</th>
               <th className="p-2.5 w-24 text-right">Vlr Unit (R$)</th>
-              <th className="p-2.5 w-28 text-right">Vlr Total (R$)</th>
+              <th className="p-2.5 w-32 text-right text-brand" title="Valor total previsto orçado pelo engenheiro responsável">
+                Valor Esperado (R$)
+              </th>
               <th className="p-2.5 w-28 text-center bg-black/5">Distribuição</th>
               {/* COLUNAS MENSAIS DINÂMICAS */}
               {listaMeses.map(m => (
@@ -517,24 +577,17 @@ export function OrcamentoSpreadsheetEditor({
                 {/* 2. Unidade Construtiva */}
                 <td className="p-2">
                   {isReadonly ? (
-                    <span className="text-ink-primary">
-                      {subCentrosCusto.find(c => c.id === row.centroCustoId)?.nome || 'Toda a obra'}
+                    <span className="text-ink-primary font-semibold">
+                      {unidadesLocais.find(c => c.id === row.centroCustoId)?.nome || 'Toda a obra'}
                     </span>
                   ) : (
                     <select
                       value={row.centroCustoId || ''}
                       onChange={(e) => handleRowFieldChange(row.id, 'centroCustoId', e.target.value)}
                       className="w-full bg-surface border border-black/10 rounded-lg px-2 py-1 text-xs font-semibold text-ink-primary focus:ring-2 focus:ring-brand"
-                      title={
-                        subCentrosCusto.length === 0
-                          ? 'Esta obra ainda não tem unidades construtivas cadastradas. Cadastre-as como filhas da obra em Cadastros → Centro de Custos.'
-                          : undefined
-                      }
                     >
-                      {/* Item sem unidade aparece na Apropriação de qualquer
-                          unidade da obra — é o caso de custo indireto. */}
                       <option value="">Toda a obra</option>
-                      {subCentrosCusto.map(c => (
+                      {unidadesLocais.map(c => (
                         <option key={c.id} value={c.id}>{c.codigo} - {c.nome}</option>
                       ))}
                     </select>
@@ -560,14 +613,14 @@ export function OrcamentoSpreadsheetEditor({
                   )}
                 </td>
 
-                {/* 2. Descrição */}
+                {/* 4. Item do Orçamento (Descrição) */}
                 <td className="p-2">
                   {isReadonly ? (
                     <span className="text-ink-primary">{row.descricao || '-'}</span>
                   ) : (
                     <input
                       type="text"
-                      placeholder="Ex: Escavação / Concreto..."
+                      placeholder="Ex: Folha Mão de Obra, Concreto, ISS..."
                       value={row.descricao}
                       onChange={(e) => handleRowFieldChange(row.id, 'descricao', e.target.value)}
                       className="w-full bg-surface border border-black/10 rounded-lg px-2 py-1 text-xs text-ink-primary focus:ring-2 focus:ring-brand"
@@ -724,6 +777,95 @@ export function OrcamentoSpreadsheetEditor({
           </tfoot>
         </table>
       </div>
+
+      {/* MODAL: CRIAR NOVA UNIDADE CONSTRUTIVA RÁPIDA */}
+      {modalNovaUnidadeOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-surface rounded-2xl p-6 w-full max-w-md shadow-2xl border border-black/10 space-y-4">
+            <div className="flex items-center justify-between border-b border-black/5 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-purple-50 text-purple-600 rounded-xl">
+                  <Building2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-ink-primary">Nova Unidade Construtiva</h3>
+                  <p className="text-xs text-ink-muted">Adicionar macro-etapa ou agrupador na obra</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalNovaUnidadeOpen(false)}
+                className="text-ink-muted hover:text-ink-primary"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-ink-muted mb-1">
+                  Nome da Unidade Construtiva *
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ex: IMPOSTOS, ENGENHARIA, MÃO DE OBRA..."
+                  value={nomeNovaUnidade}
+                  onChange={(e) => setNomeNovaUnidade(e.target.value)}
+                  className="w-full bg-surface-muted border border-black/10 rounded-xl px-3 py-2 text-xs font-semibold text-ink-primary focus:outline-none focus:ring-2 focus:ring-brand"
+                />
+              </div>
+
+              <div>
+                <span className="text-[11px] font-semibold text-ink-muted block mb-1.5">Sugestões rápidas:</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    'IMPOSTOS',
+                    'ENGENHARIA',
+                    'MÃO DE OBRA',
+                    'MATERIAIS',
+                    'ADMINISTRAÇÃO DA OBRA',
+                    'MÁQUINAS & EQUIPAMENTOS',
+                    'TORRE 1',
+                    'ÁREA COMUM',
+                  ].map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setNomeNovaUnidade(s)}
+                      className={`text-[10px] px-2.5 py-1 rounded-lg border font-semibold transition-all ${
+                        nomeNovaUnidade === s
+                          ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                          : 'bg-white hover:bg-purple-50 hover:text-purple-700 text-ink-muted border-black/10'
+                      }`}
+                    >
+                      + {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-black/5">
+              <button
+                type="button"
+                onClick={() => setModalNovaUnidadeOpen(false)}
+                className="px-4 py-2 text-xs font-semibold text-ink-muted hover:bg-black/5 rounded-xl"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => handleCriarUnidadeRapida(nomeNovaUnidade)}
+                disabled={!nomeNovaUnidade.trim() || criandoUnidade}
+                className="flex items-center gap-1.5 px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-semibold shadow-md active:scale-[0.98] disabled:opacity-50"
+              >
+                <Check className="w-4 h-4" />
+                <span>{criandoUnidade ? 'Criando...' : 'Salvar Unidade'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

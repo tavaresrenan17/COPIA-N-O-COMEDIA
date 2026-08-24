@@ -248,7 +248,7 @@ export function AcompanhamentoOrcamentarioView() {
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-surface p-4 rounded-2xl shadow-soft border border-black/[0.03]">
             <div className="flex items-center gap-3">
               <span className="text-xs font-bold uppercase tracking-wider text-ink-primary">
-                Acompanhamento por Grupo (Nível 2 do Plano Financeiro)
+                Acompanhamento por Unidade Construtiva & Item de Orçamento
               </span>
               <span className="text-xs text-ink-muted">
                 • Clique na linha para ver os títulos e movimentações detalhadas
@@ -273,78 +273,107 @@ export function AcompanhamentoOrcamentarioView() {
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="bg-surface-muted text-[11px] font-bold text-ink-muted uppercase border-b border-black/10">
-                    <th className="py-3 px-4 w-10"></th>
-                    <th className="py-3 px-4">Plano Financeiro Nível 2</th>
-                    <th className="py-3 px-4 text-right">Orçado (R$)</th>
+                    <th className="py-3 px-3 w-10"></th>
+                    <th className="py-3 px-3 min-w-[140px]">Unidade Construtiva</th>
+                    <th className="py-3 px-3 min-w-[180px]">Item do Orçamento</th>
+                    <th className="py-3 px-3 min-w-[160px]">Plano Financeiro</th>
+                    <th className="py-3 px-3 text-right">Valor Esperado (R$)</th>
                     {compararV1 && (
                       <>
-                        <th className="py-3 px-4 text-right bg-purple-50 text-purple-700">Orçado v1</th>
-                        <th className="py-3 px-4 text-right bg-purple-50 text-purple-700">Variação R$</th>
-                        <th className="py-3 px-4 text-right bg-purple-50 text-purple-700">Variação %</th>
+                        <th className="py-3 px-3 text-right bg-purple-50 text-purple-700">Orçado v1</th>
+                        <th className="py-3 px-3 text-right bg-purple-50 text-purple-700">Variação R$</th>
+                        <th className="py-3 px-3 text-right bg-purple-50 text-purple-700">Variação %</th>
                       </>
                     )}
-                    <th className="py-3 px-4 text-right text-amber-600">Comprometido</th>
-                    <th className="py-3 px-4 text-right text-emerald-600">Realizado</th>
-                    <th className="py-3 px-4 text-right">Saldo (R$)</th>
-                    <th className="py-3 px-4 text-center min-w-[140px]">% Consumido</th>
+                    <th className="py-3 px-3 text-right text-amber-600">Comprometido</th>
+                    <th className="py-3 px-3 text-right text-emerald-600">Realizado</th>
+                    <th className="py-3 px-3 text-right">Saldo Restante (R$)</th>
+                    <th className="py-3 px-3 text-center min-w-[140px]">% Consumido</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-black/5 font-medium">
-                  {execucaoData.itensExecucao.map((it) => {
-                    const isExpanded = !!expandedRows[it.planoContaNivel2Id];
+                  {execucaoData.itensExecucao.map((it, idx) => {
+                    const rowKey = it.itemId || `${it.planoContaNivel2Id}-${idx}`;
+                    const isExpanded = !!expandedRows[rowKey];
 
                     return (
-                      <React.Fragment key={it.planoContaNivel2Id}>
+                      <React.Fragment key={rowKey}>
                         <tr 
-                          onClick={() => toggleRowExpand(it.planoContaNivel2Id)}
+                          onClick={() => toggleRowExpand(rowKey)}
                           className={`cursor-pointer transition-colors ${
                             it.isEstourado ? 'bg-rose-50/50 hover:bg-rose-50' : 'hover:bg-black/[0.02]'
                           }`}
                         >
-                          <td className="py-3.5 px-4 text-center text-ink-muted">
+                          <td className="py-3 px-3 text-center text-ink-muted">
                             {isExpanded ? <ChevronDown className="w-4 h-4 text-brand" /> : <ChevronRight className="w-4 h-4" />}
                           </td>
 
-                          <td className="py-3.5 px-4">
-                            <span className="font-bold text-ink-primary font-mono">{it.planoContaNivel2Codigo}</span>
-                            <span className="text-ink-primary ml-2 font-bold">{it.planoContaNivel2Nome}</span>
+                          {/* Unidade Construtiva */}
+                          <td className="py-3 px-3">
+                            <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-surface-muted text-ink-primary border border-black/5 inline-block">
+                              {it.centroCustoNome || 'Toda a obra'}
+                            </span>
                           </td>
 
-                          <td className="py-3.5 px-4 text-right font-mono font-bold">
+                          {/* Item do Orçamento */}
+                          <td className="py-3 px-3">
+                            <div className="flex items-center gap-1.5">
+                              {it.itemCodigo && (
+                                <span className="font-bold text-brand font-mono text-[11px] bg-brand/5 px-1.5 py-0.5 rounded">
+                                  {it.itemCodigo}
+                                </span>
+                              )}
+                              <span className="font-bold text-ink-primary text-xs">
+                                {it.itemDescricao || it.planoContaNivel2Nome}
+                              </span>
+                            </div>
+                          </td>
+
+                          {/* Plano Financeiro */}
+                          <td className="py-3 px-3 text-ink-muted">
+                            <span className="font-mono text-[11px] font-semibold">{it.planoContaNivel2Codigo}</span> - {it.planoContaNivel2Nome}
+                          </td>
+
+                          {/* Valor Esperado */}
+                          <td className="py-3 px-3 text-right font-mono font-bold text-ink-primary">
                             {formatCurrency(it.orcadoCentavos)}
                           </td>
 
                           {compararV1 && (
                             <>
-                              <td className="py-3.5 px-4 text-right font-mono text-purple-700 bg-purple-50/30">
+                              <td className="py-3 px-3 text-right font-mono text-purple-700 bg-purple-50/30">
                                 {formatCurrency(it.orcadoV1Centavos || 0)}
                               </td>
-                              <td className={`py-3.5 px-4 text-right font-mono font-bold bg-purple-50/30 ${
+                              <td className={`py-3 px-3 text-right font-mono font-bold bg-purple-50/30 ${
                                 (it.variacaoReaisCentavos || 0) > 0 ? 'text-rose-600' : 'text-emerald-600'
                               }`}>
                                 {formatCurrency(it.variacaoReaisCentavos || 0)}
                               </td>
-                              <td className="py-3.5 px-4 text-right font-mono text-xs font-bold bg-purple-50/30">
+                              <td className="py-3 px-3 text-right font-mono text-xs font-bold bg-purple-50/30">
                                 {(it.variacaoPercentual || 0).toFixed(1)}%
                               </td>
                             </>
                           )}
 
-                          <td className="py-3.5 px-4 text-right font-mono text-amber-600 font-bold">
+                          {/* Comprometido */}
+                          <td className="py-3 px-3 text-right font-mono text-amber-600 font-bold">
                             {formatCurrency(it.comprometidoCentavos)}
                           </td>
 
-                          <td className="py-3.5 px-4 text-right font-mono text-emerald-600 font-bold">
+                          {/* Realizado */}
+                          <td className="py-3 px-3 text-right font-mono text-emerald-600 font-bold">
                             {formatCurrency(it.realizadoCentavos)}
                           </td>
 
-                          <td className={`py-3.5 px-4 text-right font-mono font-bold ${
+                          {/* Saldo Restante */}
+                          <td className={`py-3 px-3 text-right font-mono font-bold ${
                             it.saldoCentavos < 0 ? 'text-rose-600' : 'text-brand'
                           }`}>
                             {formatCurrency(it.saldoCentavos)}
                           </td>
 
-                          <td className="py-3.5 px-4 text-center">
+                          {/* % Consumido */}
+                          <td className="py-3 px-3 text-center">
                             <div className="flex flex-col items-center gap-1">
                               <div className="flex items-center justify-between w-full text-[11px] font-bold font-mono">
                                 <span>{it.percentualConsumido.toFixed(1)}%</span>
@@ -362,7 +391,7 @@ export function AcompanhamentoOrcamentarioView() {
 
                         {isExpanded && (
                           <tr className="bg-surface-muted/60">
-                            <td colSpan={compararV1 ? 10 : 7} className="p-4 space-y-4 border-t border-b border-black/10">
+                            <td colSpan={compararV1 ? 12 : 9} className="p-4 space-y-4 border-t border-b border-black/10">
                               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                                 <div className="bg-surface p-3 rounded-xl border border-black/10 space-y-2">
                                   <span className="text-xs font-bold text-amber-700 uppercase tracking-wider block flex items-center gap-1.5">

@@ -2079,6 +2079,8 @@ export class MockErpRepository implements IErpRepository {
       const orcadoCentavos = item.valorTotalCentavos;
       totalOrcadoCentavos += orcadoCentavos;
 
+      const unidade = item.centroCustoId ? mockCentrosCusto.find(c => c.id === item.centroCustoId) : null;
+
       const comprometidoTitulos: ComprometidoTituloItem[] = [];
       const realizadoMovimentos: RealizadoMovimentoItem[] = [];
 
@@ -2088,18 +2090,13 @@ export class MockErpRepository implements IErpRepository {
       // 1. COMPROMETIDO (Títulos de despesa em aberto com competência no período do orçamento)
       mockTitulos
         .filter(t => t.tipo === 'P' && t.ativo && !t.aguardandoValor && t.dataCompetencia >= orcamento.dataInicio && t.dataCompetencia <= orcamento.dataFim)
-
         .forEach(t => {
           const pcFolha = mockPlanoContas.find(pc => pc.id === t.planoContaId);
-          if (!pcFolha) return;
-
-          let pcPaiNivel2 = mockPlanoContas.find(pc => pc.id === pcFolha.parentId);
+          let pcPaiNivel2 = pcFolha ? mockPlanoContas.find(pc => pc.id === pcFolha.parentId) : null;
           if (pcPaiNivel2 && pcPaiNivel2.nivel > 2) {
             pcPaiNivel2 = mockPlanoContas.find(pc => pc.id === pcPaiNivel2?.parentId);
           }
           if (!pcPaiNivel2) pcPaiNivel2 = pcFolha;
-
-          if (pcPaiNivel2.id !== pcGrupoId && pcPaiNivel2.codigo !== pcCodigo) return;
 
           t.parcelas?.forEach(p => {
             if (!p.ativo) return;
@@ -2109,7 +2106,20 @@ export class MockErpRepository implements IErpRepository {
 
             if (saldoParcelaCentavos <= 0) return;
 
-            const r = p.rateios?.find(rat => centroCustoTreeIds.includes(rat.centroCustoId));
+            // Matching direto por item ou fallback por unidade/plano
+            const r = p.rateios?.find(rat => {
+              if (rat.orcamentoItemId && item.id) {
+                return rat.orcamentoItemId === item.id;
+              }
+              if (item.centroCustoId && rat.centroCustoId === item.centroCustoId) {
+                return true;
+              }
+              if (!item.centroCustoId && centroCustoTreeIds.includes(rat.centroCustoId)) {
+                return pcPaiNivel2 ? (pcPaiNivel2.id === pcGrupoId || pcPaiNivel2.codigo === pcCodigo) : false;
+              }
+              return false;
+            });
+
             if (r) {
               const valorRateadoCentavos = Math.round(saldoParcelaCentavos * (r.percentual / 100));
               comprometidoCentavos += valorRateadoCentavos;
@@ -2149,17 +2159,25 @@ export class MockErpRepository implements IErpRepository {
           if (!parentTitulo || parentTitulo.tipo !== 'P' || !parentParcela) return;
 
           const pcFolha = mockPlanoContas.find(pc => pc.id === parentTitulo.planoContaId);
-          if (!pcFolha) return;
-
-          let pcPaiNivel2 = mockPlanoContas.find(pc => pc.id === pcFolha.parentId);
+          let pcPaiNivel2 = pcFolha ? mockPlanoContas.find(pc => pc.id === pcFolha.parentId) : null;
           if (pcPaiNivel2 && pcPaiNivel2.nivel > 2) {
             pcPaiNivel2 = mockPlanoContas.find(pc => pc.id === pcPaiNivel2?.parentId);
           }
           if (!pcPaiNivel2) pcPaiNivel2 = pcFolha;
 
-          if (pcPaiNivel2.id !== pcGrupoId && pcPaiNivel2.codigo !== pcCodigo) return;
+          const r = parentParcela.rateios?.find(rat => {
+            if (rat.orcamentoItemId && item.id) {
+              return rat.orcamentoItemId === item.id;
+            }
+            if (item.centroCustoId && rat.centroCustoId === item.centroCustoId) {
+              return true;
+            }
+            if (!item.centroCustoId && centroCustoTreeIds.includes(rat.centroCustoId)) {
+              return pcPaiNivel2 ? (pcPaiNivel2.id === pcGrupoId || pcPaiNivel2.codigo === pcCodigo) : false;
+            }
+            return false;
+          });
 
-          const r = parentParcela.rateios?.find(rat => centroCustoTreeIds.includes(rat.centroCustoId));
           if (r) {
             const valorRateadoMovimentoCentavos = Math.round(m.valorLiquidoCentavos * (r.percentual / 100));
             realizadoCentavos += valorRateadoMovimentoCentavos;
@@ -2179,7 +2197,6 @@ export class MockErpRepository implements IErpRepository {
             });
           }
         });
-
 
       totalComprometidoCentavos += comprometidoCentavos;
       totalRealizadoCentavos += realizadoCentavos;
@@ -2202,6 +2219,12 @@ export class MockErpRepository implements IErpRepository {
       const variacaoPercentual = itemV1Centavos > 0 ? (variacaoReaisCentavos / itemV1Centavos) * 100 : 0;
 
       itensExecucao.push({
+        itemId: item.id,
+        itemCodigo: item.codigo,
+        itemDescricao: item.descricao,
+        centroCustoId: item.centroCustoId,
+        centroCustoCodigo: unidade?.codigo,
+        centroCustoNome: unidade ? unidade.nome : 'Toda a obra',
         planoContaNivel2Id: pcGrupoId,
         planoContaNivel2Codigo: pcCodigo,
         planoContaNivel2Nome: pcNome,

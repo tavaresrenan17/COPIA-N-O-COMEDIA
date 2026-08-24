@@ -665,10 +665,16 @@ export interface RealizadoMovimentoItem {
 }
 
 export interface OrcamentoExecucaoItemView {
+  itemId?: string;
+  itemCodigo?: string;
+  itemDescricao?: string;
+  centroCustoId?: string; // Unidade Construtiva
+  centroCustoCodigo?: string;
+  centroCustoNome?: string;
   planoContaNivel2Id: string;
   planoContaNivel2Codigo: string;
   planoContaNivel2Nome: string;
-  orcadoCentavos: number;
+  orcadoCentavos: number; // Valor Esperado
   comprometidoCentavos: number; // Titulos lançados em aberto (saldo > 0)
   realizadoCentavos: number; // Movimentos de caixa pagos (não estornados)
   saldoCentavos: number; // Orçado - Comprometido - Realizado

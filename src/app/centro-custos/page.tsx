@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { erpRepository, CentroCusto, TipoCentroCusto, Subempresa, GrupoGestao, LinhaGestao } from '@/data';
 import { TreeView, TreeNode } from '@/components/TreeView';
-import { Search, Plus, X, PieChart, Calendar, Building2, Layers } from 'lucide-react';
+import { Search, Plus, X, PieChart, Calendar, Building2, Layers, Sparkles, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { proximoCodigo } from '@/lib/codigos';
 import { descendentesDe, recalcularNiveis } from '@/lib/arvore';
@@ -19,6 +19,11 @@ export default function CentroCustosPage() {
   // Modal State
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Modal Gerar Unidades Padrão
+  const [modalGerarPadraoOpen, setModalGerarPadraoOpen] = useState(false);
+  const [obraIdGerarPadrao, setObraIdGerarPadrao] = useState('');
+  const [gerandoPadrao, setGerandoPadrao] = useState(false);
 
   // Form State
   const [formCodigo, setFormCodigo] = useState('');
@@ -295,6 +300,55 @@ export default function CentroCustosPage() {
       };
     });
 
+  const handleExecutarGeracaoPadrao = async () => {
+    if (!obraIdGerarPadrao) return;
+    const obra = centrosTodos.find((c) => c.id === obraIdGerarPadrao);
+    if (!obra) return;
+
+    setGerandoPadrao(true);
+    const unidadesPadrao = [
+      'IMPOSTOS & TAXAS',
+      'ENGENHARIA & PROJETOS',
+      'MÃO DE OBRA',
+      'MATERIAIS DE CONSTRUÇÃO',
+      'ADMINISTRAÇÃO DA OBRA',
+      'TORRE 1 / OPERAÇÃO',
+    ];
+
+    try {
+      let listaAtual = [...centrosTodos];
+      for (const nomeUnidade of unidadesPadrao) {
+        const jaExiste = listaAtual.some(
+          (c) => c.parentId === obra.id && c.nome.toLowerCase() === nomeUnidade.toLowerCase()
+        );
+        if (!jaExiste) {
+          const cod = proximoCodigo(listaAtual, { id: obra.id, codigo: obra.codigo, nivel: obra.nivel } as any);
+          const nova = await erpRepository.createCentroCusto({
+            codigo: cod,
+            nome: nomeUnidade,
+            parentId: obra.id,
+            tipo: 'obra',
+            nivel: obra.nivel + 1,
+            aceitaLancamento: true,
+            ativo: true,
+          });
+          listaAtual.push(nova);
+        }
+      }
+
+      if (obra.aceitaLancamento) {
+        await erpRepository.updateCentroCusto(obra.id, { aceitaLancamento: false });
+      }
+
+      setModalGerarPadraoOpen(false);
+      await loadData();
+      alert(`Unidades construtivas padrão geradas com sucesso para a obra ${obra.nome}!`);
+    } catch (err: any) {
+      alert(err.message || 'Erro ao gerar unidades padrão.');
+    }
+    setGerandoPadrao(false);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -302,19 +356,33 @@ export default function CentroCustosPage() {
         <div>
           <h1 className="text-xl font-bold text-ink-primary tracking-tight">Centro de Custos (Obras & Projetos)</h1>
           <p className="text-xs text-ink-muted mt-1">
-            Cada Obra se ramifica em Unidades Construtivas, por empresa vinculada e tipo de
-            operação (Obras, Frota, Administrativo e Comercial). São estes os nomes que a aba{' '}
+            Cada Obra se ramifica em Unidades Construtivas (como <strong>IMPOSTOS</strong>, <strong>ENGENHARIA</strong>,{' '}
+            <strong>MÃO DE OBRA</strong>, <strong>MATERIAIS</strong> e <strong>TORRES</strong>). São estes os nomes que a aba{' '}
             <strong>Apropriação</strong> do título usa nas duas primeiras colunas, e é aqui que o
             orçamento da obra encontra as unidades para distribuir os itens.
           </p>
         </div>
-        <button
-          onClick={() => handleOpenNewModal()}
-          className="flex items-center justify-center gap-2 px-4 py-2.5 bg-brand hover:bg-brand-hover text-white rounded-xl text-xs font-semibold shadow-md transition-all active:scale-[0.98]"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Nova Obra</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              const raizes = centrosTodos.filter((c) => !c.parentId && c.ativo);
+              if (raizes.length > 0) setObraIdGerarPadrao(raizes[0].id);
+              setModalGerarPadraoOpen(true);
+            }}
+            className="flex items-center justify-center gap-2 px-3.5 py-2.5 bg-surface border border-black/10 hover:bg-black/5 text-ink-primary rounded-xl text-xs font-semibold shadow-soft transition-all active:scale-[0.98]"
+            title="Gera automaticamente unidades de Impostos, Engenharia, Mão de Obra, Materiais..."
+          >
+            <Sparkles className="w-4 h-4 text-purple-600" />
+            <span>Gerar Unidades Padrão</span>
+          </button>
+          <button
+            onClick={() => handleOpenNewModal()}
+            className="flex items-center justify-center gap-2 px-4 py-2.5 bg-brand hover:bg-brand-hover text-white rounded-xl text-xs font-semibold shadow-md transition-all active:scale-[0.98]"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Nova Obra</span>
+          </button>
+        </div>
       </div>
 
       {/* Busca, Filtro por Empresa e Ativos */}
@@ -455,15 +523,49 @@ export default function CentroCustosPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-ink-muted mb-1">Nome d{ehLinha ? 'a' : 'o'} {rotuloRegistro} *</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-ink-muted">
+                      Nome d{ehLinha ? 'a' : 'o'} {rotuloRegistro} *
+                    </label>
+                    {ehLinha && (
+                      <span className="text-[10px] text-ink-muted font-medium">Sugestões rápidas:</span>
+                    )}
+                  </div>
                   <input
                     type="text"
-                    placeholder="Ex: Residencial Villa Alpina"
+                    placeholder={ehLinha ? 'Ex: MÃO DE OBRA, ENGENHARIA, IMPOSTOS...' : 'Ex: Residencial Villa Alpina'}
                     value={formNome}
                     onChange={(e) => setFormNome(e.target.value)}
                     required
-                    className="w-full bg-surface-muted border border-black/10 rounded-xl px-3 py-2 text-xs text-ink-primary focus:outline-none focus:ring-2 focus:ring-brand"
+                    className="w-full bg-surface-muted border border-black/10 rounded-xl px-3 py-2 text-xs text-ink-primary focus:outline-none focus:ring-2 focus:ring-brand font-medium"
                   />
+                  {ehLinha && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {[
+                        'IMPOSTOS',
+                        'ENGENHARIA',
+                        'MÃO DE OBRA',
+                        'MATERIAIS',
+                        'ADMINISTRAÇÃO DA OBRA',
+                        'MÁQUINAS & EQUIPAMENTOS',
+                        'TORRE 1',
+                        'ÁREA COMUM',
+                      ].map((sugestao) => (
+                        <button
+                          key={sugestao}
+                          type="button"
+                          onClick={() => setFormNome(sugestao)}
+                          className={`text-[10px] px-2 py-0.5 rounded-lg border font-semibold transition-all ${
+                            formNome === sugestao
+                              ? 'bg-brand text-white border-brand shadow-xs'
+                              : 'bg-white hover:bg-brand/10 hover:text-brand text-ink-muted border-black/10'
+                          }`}
+                        >
+                          + {sugestao}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Vigência / Datas */}
@@ -584,6 +686,93 @@ export default function CentroCustosPage() {
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+        {/* Modal: Gerar Unidades Padrão */}
+        {modalGerarPadraoOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-surface rounded-2xl p-6 w-full max-w-lg shadow-2xl border border-black/10"
+            >
+              <div className="flex items-center justify-between mb-4 border-b border-black/5 pb-3">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-purple-50 rounded-xl text-purple-600">
+                    <Sparkles className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-ink-primary">Gerar Unidades Construtivas Padrão</h3>
+                    <p className="text-xs text-ink-muted">Criação rápida das macro-etapas e unidades da obra</p>
+                  </div>
+                </div>
+                <button onClick={() => setModalGerarPadraoOpen(false)} className="text-ink-muted hover:text-ink-primary">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-ink-muted mb-1">Selecione a Obra de Destino *</label>
+                  <select
+                    value={obraIdGerarPadrao}
+                    onChange={(e) => setObraIdGerarPadrao(e.target.value)}
+                    className="w-full bg-surface-muted border border-black/10 rounded-xl px-3 py-2.5 text-xs font-bold text-ink-primary focus:outline-none focus:ring-2 focus:ring-brand"
+                  >
+                    <option value="">Selecione uma Obra...</option>
+                    {centrosTodos
+                      .filter((c) => !c.parentId && c.ativo)
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.codigo} - {c.nome}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                <div className="bg-surface-muted p-4 rounded-xl border border-black/5 space-y-2">
+                  <span className="text-xs font-bold text-ink-primary block mb-2">Unidades que serão criadas com 1 clique:</span>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    {[
+                      { nome: 'IMPOSTOS & TAXAS', desc: 'ISS, INSS, Alvarás, Taxas' },
+                      { nome: 'ENGENHARIA & PROJETOS', desc: 'Projetos, Laudos, RT, Topografia' },
+                      { nome: 'MÃO DE OBRA', desc: 'Folha, Empreiteiros, CLT' },
+                      { nome: 'MATERIAIS DE CONSTRUÇÃO', desc: 'Insumos, Concreto, Aço' },
+                      { nome: 'ADMINISTRAÇÃO DA OBRA', desc: 'Canteiro, Água, Luz, Segurança' },
+                      { nome: 'TORRE 1 / OPERAÇÃO', desc: 'Unidade física construtiva' },
+                    ].map((u) => (
+                      <div key={u.nome} className="bg-white p-2.5 rounded-lg border border-black/5 flex items-start gap-2">
+                        <Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-bold text-ink-primary text-[11px]">{u.nome}</p>
+                          <p className="text-[10px] text-ink-muted">{u.desc}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-3 pt-3 border-t border-black/5">
+                  <button
+                    type="button"
+                    onClick={() => setModalGerarPadraoOpen(false)}
+                    className="px-4 py-2 rounded-xl text-xs font-semibold text-ink-muted hover:bg-black/5"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExecutarGeracaoPadrao}
+                    disabled={!obraIdGerarPadrao || gerandoPadrao}
+                    className="flex items-center gap-2 px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-semibold shadow-md active:scale-[0.98] disabled:opacity-50"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    <span>{gerandoPadrao ? 'Gerando...' : 'Gerar Unidades Padrão'}</span>
+                  </button>
+                </div>
+              </div>
             </motion.div>
           </div>
         )}

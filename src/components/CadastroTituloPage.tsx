@@ -782,8 +782,12 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
     return mapa;
   }, [orcamentos]);
 
-  const rotuloItemOrcamento = (i: OrcamentoItem) =>
-    `${i.codigo ? `${i.codigo} - ` : ''}${i.descricao || i.planoContaNome}`;
+  const rotuloItemOrcamento = (i: OrcamentoItem) => {
+    const cod = i.codigo ? `${i.codigo} - ` : '';
+    const desc = i.descricao || i.planoContaNome;
+    const valorEsperado = i.valorTotalCentavos > 0 ? ` (Previsto: ${formatCentavos(i.valorTotalCentavos)})` : '';
+    return `${cod}${desc}${valorEsperado}`;
+  };
 
   /**
    * Plano de contas do título = o do item de orçamento da linha de maior valor.

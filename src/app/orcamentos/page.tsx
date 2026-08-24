@@ -360,8 +360,11 @@ function OrcamentosPage() {
             dataFim={activeOrcamento.dataFim}
             planosNivel2={planosNivel2}
             subCentrosCusto={unidadesDaObraAtiva}
+            obraId={activeOrcamento.centroCustoId}
+            obraNome={activeOrcamento.centroCustoNome}
             initialItens={activeOrcamento.itens}
             isReadonly={activeOrcamento.status === 'aprovado'}
+            onNovaUnidade={(nova) => setCentrosCusto(prev => [...prev, nova])}
             onSave={handleSaveSpreadsheetItens}
             onCancel={() => { setIsEditing(false); setActiveOrcamento(null); }}
           />
