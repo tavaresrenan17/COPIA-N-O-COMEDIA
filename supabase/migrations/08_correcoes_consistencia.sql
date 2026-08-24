@@ -624,7 +624,7 @@ DECLARE t TEXT;
 BEGIN
   FOREACH t IN ARRAY ARRAY[
     'plano_conta','centro_custo','pessoa','conta_bancaria','grupo_gestao','linha_gestao',
-    'titulo','titulo_parcela','titulo_rateio','movimento',
+    'titulo','titulo_parcela','titulo_rateio','titulo_rateio_gestao','movimento',
     'orcamento','orcamento_item','orcamento_item_periodo','feriado',
     'recorrencia','recorrencia_rateio','recorrencia_ocorrencia','recorrencia_reajuste','recorrencia_log_execucao',
     'extrato_importacao','extrato_lancamento','conciliacao_regra',
