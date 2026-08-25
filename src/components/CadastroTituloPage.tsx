@@ -436,17 +436,27 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
             const rateiosGravados = parcelasGravadas[0].rateios || [];
             if (rateiosGravados.length > 0) {
               setRateios(
-                rateiosGravados.map((r) => ({
-                  // Obra sem unidades construtivas é o próprio destino gravado:
-                  // nesse caso `obraId` volta vazio do banco (parent_id nulo).
-                  obraId: r.obraId || r.centroCustoId,
-                  unidadeId: r.centroCustoId,
-                  orcamentoItemId: r.orcamentoItemId,
-                  percentualStr: r.percentual.toFixed(2).replace('.', ','),
-                  valorReais: formatCentavos(
-                    Math.round((t.valorBrutoCentavos * r.percentual) / 100)
-                  ),
-                }))
+                rateiosGravados.map((r) => {
+                  const cc = ccList.find((c) => c.id === r.centroCustoId);
+                  const orcDoItem = r.orcamentoItemId
+                    ? orcList.find((o) => o.itens.some((i) => i.id === r.orcamentoItemId))
+                    : undefined;
+
+                  const obraId =
+                    r.obraId ||
+                    (cc?.parentId ? cc.parentId : (orcDoItem?.centroCustoId || cc?.id || r.centroCustoId));
+                  const unidadeId = r.centroCustoId;
+
+                  return {
+                    obraId,
+                    unidadeId,
+                    orcamentoItemId: r.orcamentoItemId,
+                    percentualStr: r.percentual.toFixed(2).replace('.', ','),
+                    valorReais: formatCentavos(
+                      Math.round((t.valorBrutoCentavos * r.percentual) / 100)
+                    ),
+                  };
+                })
               );
               setCentroCustoTituloId(rateiosGravados[0].centroCustoId);
             }
@@ -767,10 +777,24 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
    * Item sem unidade construtiva vale para a obra inteira; item com unidade só
    * aparece na sua.
    */
-  const itensDaUnidade = (obraId: string, unidadeId: string): OrcamentoItem[] => {
-    const orc = orcamentoDaObra(obraId);
-    if (!orc) return [];
-    return orc.itens.filter((i) => !i.centroCustoId || i.centroCustoId === unidadeId);
+  const itensDaUnidade = (obraId: string, unidadeId: string, currentItemId?: string): OrcamentoItem[] => {
+    let orc = orcamentoDaObra(obraId);
+    if (!orc && currentItemId) {
+      orc = orcamentos.find((o) => o.itens.some((i) => i.id === currentItemId)) || null;
+    }
+    if (!orc) {
+      if (currentItemId) {
+        const itemGlobal = itemOrcamentoPorId.get(currentItemId);
+        if (itemGlobal) return [itemGlobal];
+      }
+      return [];
+    }
+    const list = orc.itens.filter((i) => !i.centroCustoId || i.centroCustoId === unidadeId || i.id === currentItemId);
+    if (currentItemId && !list.some((i) => i.id === currentItemId)) {
+      const it = orc.itens.find((i) => i.id === currentItemId) || itemOrcamentoPorId.get(currentItemId);
+      if (it) list.push(it);
+    }
+    return list;
   };
 
   /** Índice de itens por id, para ler o item de uma linha já escolhida. */
@@ -859,7 +883,7 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
          * a obra inteira e sobrevivem à troca — por isso a checagem consulta a
          * lista da unidade nova em vez de limpar sempre.
          */
-        const aindaVale = itensDaUnidade(item.obraId, valor).some((i) => i.id === item.orcamentoItemId);
+        const aindaVale = itensDaUnidade(item.obraId, valor, item.orcamentoItemId).some((i) => i.id === item.orcamentoItemId);
         if (!aindaVale) item.orcamentoItemId = undefined;
       } else if (campo === 'orcamentoItemId') {
         item.orcamentoItemId = valor || undefined;
@@ -2130,7 +2154,7 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
                     ) : (
                       rateios.map((r, idx) => {
                         const unidades = unidadesDaObra(r.obraId);
-                        const itens = itensDaUnidade(r.obraId, r.unidadeId);
+                        const itens = itensDaUnidade(r.obraId, r.unidadeId, r.orcamentoItemId);
                         const temOrcamento = !!orcamentoDaObra(r.obraId);
 
                         return (
