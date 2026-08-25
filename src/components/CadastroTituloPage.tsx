@@ -437,7 +437,7 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
             if (rateiosGravados.length > 0) {
               setRateios(
                 rateiosGravados.map((r) => {
-                  const cc = ccList.find((c) => c.id === r.centroCustoId);
+                  const cc = ccTodos.find((c) => c.id === r.centroCustoId) || ccList.find((c) => c.id === r.centroCustoId);
                   const orcDoItem = r.orcamentoItemId
                     ? orcList.find((o) => o.itens.some((i) => i.id === r.orcamentoItemId))
                     : undefined;

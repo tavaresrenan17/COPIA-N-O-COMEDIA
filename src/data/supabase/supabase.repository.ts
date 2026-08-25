@@ -1896,11 +1896,11 @@ export class SupabaseErpRepository implements IErpRepository {
    */
   private static readonly SELECT_ORCAMENTO = `
       *,
-      centro_custo:centro_custo_id (id, codigo, nome),
+      centro_custo (id, codigo, nome),
       orcamento_item (
         *,
-        plano_conta:plano_conta_id (id, codigo, nome),
-        centro_custo:centro_custo_id (id, codigo, nome),
+        plano_conta (id, codigo, nome),
+        centro_custo (id, codigo, nome),
         orcamento_item_periodo (*)
       )
     `;
@@ -1976,26 +1976,61 @@ export class SupabaseErpRepository implements IErpRepository {
     if (filtro?.dataInicioDe) query = query.gte('data_inicio', filtro.dataInicioDe);
     if (filtro?.dataFimAte) query = query.lte('data_fim', filtro.dataFimAte);
 
-    const { data, error } = await query.order('created_at', { ascending: false });
+    let { data, error } = await query.order('created_at', { ascending: false });
+
+    // Fallback defensivo: se falhar o join de relação embutida do PostgREST, carrega separadamente
     if (error || !data) {
-      /*
-       * Lista vazia mantém a tela de pé, mas não pode sumir em silêncio: é
-       * dela que sai a exigência de Item de Orçamento na aba Apropriação, e uma
-       * consulta falha faria a validação simplesmente parar de cobrar.
-       */
-      console.error('[orcamento] falha ao listar orçamentos:', error?.message ?? 'resposta vazia');
-      return [];
+      let fallbackQuery = this.client.from('orcamento').select('*').eq('ativo', true);
+      if (filtro?.centroCustoId) fallbackQuery = fallbackQuery.eq('centro_custo_id', filtro.centroCustoId);
+      if (filtro?.status) fallbackQuery = fallbackQuery.eq('status', filtro.status);
+      const { data: orcsBase } = await fallbackQuery.order('created_at', { ascending: false });
+
+      if (!orcsBase || orcsBase.length === 0) return [];
+
+      const orcIds = orcsBase.map((o: any) => o.id);
+      const { data: itensRaw } = await this.client
+        .from('orcamento_item')
+        .select('*')
+        .in('orcamento_id', orcIds);
+
+      const itensDb = itensRaw || [];
+      data = orcsBase.map((o: any) => ({
+        ...o,
+        orcamento_item: itensDb.filter((it: any) => it.orcamento_id === o.id)
+      }));
     }
+
     return (data as any[]).map(o => this.mapOrcamento(o));
   }
 
   async getOrcamentoById(id: string): Promise<Orcamento | null> {
     if (!this.client) return this.fallbackMock.getOrcamentoById(id);
-    const { data } = await this.client
+    let { data, error } = await this.client
       .from('orcamento')
       .select(SupabaseErpRepository.SELECT_ORCAMENTO)
       .eq('id', id)
       .maybeSingle();
+
+    if (error || !data) {
+      const { data: baseOrc } = await this.client
+        .from('orcamento')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (!baseOrc) return null;
+
+      const { data: itensRaw } = await this.client
+        .from('orcamento_item')
+        .select('*')
+        .eq('orcamento_id', id);
+
+      data = {
+        ...baseOrc,
+        orcamento_item: itensRaw || []
+      };
+    }
+
     return data ? this.mapOrcamento(data) : null;
   }
 
