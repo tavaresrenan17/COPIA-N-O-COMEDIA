@@ -1326,8 +1326,8 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
           ? rateios.map((r) => ({
               // A Unidade Construtiva é o destino gravado; no domínio/banco o
               // campo continua se chamando centroCustoId / centro_custo_id.
-              centroCustoId: r.unidadeId,
-              orcamentoItemId: r.orcamentoItemId,
+              centroCustoId: r.unidadeId || r.obraId || defaultCcId,
+              orcamentoItemId: r.orcamentoItemId || undefined,
               // O repositório prefere o plano do item de orçamento; este aqui é
               // só o fallback de quem apropriou em obra ainda sem planilha.
               planoContaId: planoContaId || undefined,
@@ -1337,6 +1337,7 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
           : [
               {
                 centroCustoId: defaultCcId,
+                orcamentoItemId: undefined,
                 planoContaId: planoContaId || undefined,
                 percentual: 100,
                 valorCentavos: valorLiquidoCentavos,
@@ -1404,6 +1405,9 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
         setCriadoPor(criado.createdBy || usuarioLogado);
         setCriadoEm(criado.createdAt || new Date().toISOString());
         if (criado.logsAudit) setLogsAudit(criado.logsAudit);
+        if (typeof window !== 'undefined') {
+          window.history.replaceState(null, '', `/contas-${isPagar ? 'pagar' : 'receber'}/cadastro/${criado.id}`);
+        }
       }
 
       setSalvoSucesso(true);
