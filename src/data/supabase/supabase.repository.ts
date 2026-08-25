@@ -1036,6 +1036,25 @@ export class SupabaseErpRepository implements IErpRepository {
     return linha;
   }
 
+  /** Grava rateio com fallback caso o schema cache da API do Supabase esteja desatualizado */
+  private async inserirRateioParcela(linha: Record<string, unknown>): Promise<void> {
+    const { error } = await this.client!.from('titulo_rateio').insert(linha);
+    if (!error) return;
+
+    // Se o banco ainda não tiver a coluna orcamento_item_id ou o cache ainda não atualizou:
+    if (/orcamento_item_id/i.test(error.message || '') || (error as any).code === 'PGRST204') {
+      const linhaSemItem = { ...linha };
+      delete linhaSemItem.orcamento_item_id;
+      const { error: retryErr } = await this.client!.from('titulo_rateio').insert(linhaSemItem);
+      if (retryErr) {
+        throw new Error(`Falha ao gravar rateio: ${retryErr.message}`);
+      }
+      return;
+    }
+
+    throw new Error(`Falha ao gravar rateio: ${error.message}`);
+  }
+
   /** Diz se uma TABELA existe (mesma lógica de `temColuna`, para estrutura nova). */
   private async temTabela(tabela: string): Promise<boolean> {
     const chave = `tabela:${tabela}`;
@@ -1172,13 +1191,8 @@ export class SupabaseErpRepository implements IErpRepository {
       if (p.rateios && p.rateios.length > 0) {
         for (const r of p.rateios) {
           const ccUuid = toUuidOrNull(r.centroCustoId) || '99999999-9999-9999-9999-999999999999';
-          const { error: rErr } = await this.client.from('titulo_rateio').insert(
-            await this.montarRateio(insertedParcela.id, ccUuid, r, planoContaUuid)
-          );
-          if (rErr) {
-            console.error('[createTitulo] Erro ao gravar rateio da parcela:', rErr);
-            throw new Error(`Falha ao gravar rateio da parcela ${p.numero}: ${rErr.message}`);
-          }
+          const linhaRateio = await this.montarRateio(insertedParcela.id, ccUuid, r, planoContaUuid);
+          await this.inserirRateioParcela(linhaRateio);
         }
       }
     }
@@ -1276,10 +1290,8 @@ export class SupabaseErpRepository implements IErpRepository {
 
         for (const r of p.rateios ?? []) {
           const ccUuid = toUuidOrNull(r.centroCustoId) || '99999999-9999-9999-9999-999999999999';
-          const { error: rErr } = await this.client.from('titulo_rateio').insert(
-            await this.montarRateio(insertedParcela.id, ccUuid, r, planoContaUuid)
-          );
-          if (rErr) throw new Error(`Falha ao gravar o rateio da parcela ${p.numero}: ${rErr.message}`);
+          const linhaRateio = await this.montarRateio(insertedParcela.id, ccUuid, r, planoContaUuid);
+          await this.inserirRateioParcela(linhaRateio);
         }
       }
     }
