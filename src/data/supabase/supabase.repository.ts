@@ -30,6 +30,10 @@ import {
   DashboardMetrics,
   OrcamentoEmpreendimento,
   OrcamentoExecucaoView,
+  OrcamentoExecucaoItemView,
+  ComprometidoTituloItem,
+  RealizadoMovimentoItem,
+  StatusOrcamentoEmpreendimento,
   Orcamento,
   Recorrencia,
   StatusRecorrencia,
@@ -1318,14 +1322,14 @@ export class SupabaseErpRepository implements IErpRepository {
     return true;
   }
 
-  /** Colunas do título com as dimensões e parcelas necessárias para montar `Titulo`. */
+  /** Colunas do título com as dimensões, parcelas e rateios necessários para montar `Titulo`. */
   private static readonly SELECT_TITULO = `
       *,
       pessoa:pessoa(*),
       plano_conta:plano_conta(*),
       grupo_gestao:grupo_gestao(*),
       linha_gestao:linha_gestao(*),
-      titulo_parcela(*)
+      titulo_parcela(*, titulo_rateio(*))
     `;
 
   async getTitulos(): Promise<Titulo[]> {
@@ -1375,7 +1379,15 @@ export class SupabaseErpRepository implements IErpRepository {
         valorCentavos: Math.round(Number(p.valor) * 100),
         observacao: p.observacao,
         ativo: p.ativo,
-        rateios: []
+        rateios: (p.titulo_rateio || []).map((r: any) => ({
+          id: r.id,
+          parcelaId: p.id,
+          centroCustoId: r.centro_custo_id,
+          planoContaId: r.plano_conta_id,
+          orcamentoItemId: r.orcamento_item_id,
+          percentual: Number(r.percentual),
+          valorCentavos: Math.round(Number(r.valor) * 100)
+        }))
       }))
     }));
   }
@@ -2302,7 +2314,215 @@ export class SupabaseErpRepository implements IErpRepository {
   async createOrcamentoEmpreendimento(data: any): Promise<OrcamentoEmpreendimento> { return this.fallbackMock.createOrcamentoEmpreendimento(data); }
   async updateOrcamentoEmpreendimento(id: string, data: any): Promise<OrcamentoEmpreendimento> { return this.fallbackMock.updateOrcamentoEmpreendimento(id, data); }
   async aprovarOrcamentoEmpreendimento(id: string, usuario?: string): Promise<OrcamentoEmpreendimento> { return this.fallbackMock.aprovarOrcamentoEmpreendimento(id, usuario); }
-  async getOrcamentoExecucao(orcamentoId: string, dataCorte?: string): Promise<OrcamentoExecucaoView> { return this.fallbackMock.getOrcamentoExecucao(orcamentoId, dataCorte); }
+  async getOrcamentoExecucao(orcamentoId: string, dataCorte?: string): Promise<OrcamentoExecucaoView> {
+    if (!this.client) return this.fallbackMock.getOrcamentoExecucao(orcamentoId, dataCorte);
+
+    const dataCorteEfetiva = dataCorte || new Date().toISOString().split('T')[0];
+    const orcamento = await this.getOrcamentoById(orcamentoId);
+    if (!orcamento) throw new Error('Orçamento não encontrado');
+
+    const centroCustoId = orcamento.centroCustoId;
+    const centros = await this.getCentrosCusto({ apenasAtivos: false });
+    const centroCustoTreeIds = [centroCustoId];
+    centros.filter(c => c.parentId === centroCustoId).forEach(c => centroCustoTreeIds.push(c.id));
+
+    // 1. Carregar todos os títulos a pagar ativos com parcelas e rateios
+    const { data: titulosDb } = await this.client
+      .from('titulo')
+      .select(`
+        id, codigo, tipo, pessoa_id, plano_conta_id, numero_documento, descricao, data_competencia, valor_bruto,
+        pessoa:pessoa(nome),
+        titulo_parcela(
+          id, numero, data_vencimento, valor, ativo,
+          titulo_rateio(*)
+        )
+      `)
+      .eq('tipo', 'P')
+      .eq('ativo', true);
+
+    // 2. Carregar todos os movimentos de caixa pagos e não estornados
+    const { data: movsDb } = await this.client
+      .from('movimento')
+      .select('*')
+      .eq('estornado', false)
+      .lte('data_pagamento', dataCorteEfetiva);
+
+    const movimentos = movsDb || [];
+    const titulos = titulosDb || [];
+
+    const itensExecucao: OrcamentoExecucaoItemView[] = [];
+    let totalOrcadoCentavos = 0;
+    let totalComprometidoCentavos = 0;
+    let totalRealizadoCentavos = 0;
+
+    for (const item of orcamento.itens) {
+      const pcGrupoId = item.planoContaId || item.planoContaNivel2Id || '';
+      const pcCodigo = item.planoContaCodigo || item.planoContaNivel2Codigo || '';
+      const pcNome = item.planoContaNome || item.planoContaNivel2Nome || '';
+      const orcadoCentavos = item.valorTotalCentavos || 0;
+      totalOrcadoCentavos += orcadoCentavos;
+
+      const unidade = item.centroCustoId ? centros.find(c => c.id === item.centroCustoId) : null;
+
+      const comprometidoTitulos: ComprometidoTituloItem[] = [];
+      const realizadoMovimentos: RealizadoMovimentoItem[] = [];
+
+      let comprometidoCentavos = 0;
+      let realizadoCentavos = 0;
+
+      // 1. COMPROMETIDO (títulos em aberto com saldo)
+      for (const t of titulos) {
+        const parcelas = (t.titulo_parcela || []).filter((p: any) => p.ativo !== false);
+        for (const p of parcelas) {
+          const pMovs = movimentos.filter((m: any) => m.parcela_id === p.id);
+          const baixadoCentavos = pMovs.reduce((sum: number, m: any) => sum + Math.round(Number(m.valor_pago) * 100), 0);
+          const pValorCentavos = Math.round(Number(p.valor) * 100);
+          const saldoParcelaCentavos = Math.max(0, pValorCentavos - baixadoCentavos);
+
+          if (saldoParcelaCentavos <= 0) continue;
+
+          const rateios = p.titulo_rateio || [];
+          const r = rateios.find((rat: any) => {
+            if (rat.orcamento_item_id && item.id) {
+              return rat.orcamento_item_id === item.id;
+            }
+            if (item.centroCustoId && rat.centro_custo_id === item.centroCustoId) {
+              return true;
+            }
+            if (!item.centroCustoId && centroCustoTreeIds.includes(rat.centro_custo_id)) {
+              return true;
+            }
+            return false;
+          });
+
+          if (r) {
+            const pct = Number(r.percentual) || 100;
+            const valorRateadoCentavos = Math.round(saldoParcelaCentavos * (pct / 100));
+            comprometidoCentavos += valorRateadoCentavos;
+
+            comprometidoTitulos.push({
+              tituloId: t.id,
+              parcelaId: p.id,
+              numeroDocumento: t.numero_documento,
+              descricao: t.descricao,
+              pessoaNome: (t.pessoa as any)?.nome || 'Fornecedor',
+              dataCompetencia: t.data_competencia,
+              dataVencimento: p.data_vencimento,
+              valorTotalParcelaCentavos: pValorCentavos,
+              valorRateadoCentavos,
+              saldoParcelaCentavos,
+              percentualRateio: pct
+            });
+          }
+        }
+      }
+
+      // 2. REALIZADO (baixas de caixa efetivadas)
+      for (const m of movimentos) {
+        if (!m.parcela_id) continue;
+        for (const t of titulos) {
+          const p = (t.titulo_parcela || []).find((par: any) => par.id === m.parcela_id);
+          if (!p) continue;
+
+          const rateios = p.titulo_rateio || [];
+          const r = rateios.find((rat: any) => {
+            if (rat.orcamento_item_id && item.id) {
+              return rat.orcamento_item_id === item.id;
+            }
+            if (item.centroCustoId && rat.centro_custo_id === item.centroCustoId) {
+              return true;
+            }
+            if (!item.centroCustoId && centroCustoTreeIds.includes(rat.centro_custo_id)) {
+              return true;
+            }
+            return false;
+          });
+
+          if (r) {
+            const pct = Number(r.percentual) || 100;
+            const movValorCentavos = Math.round(Number(m.valor_liquido || m.valor_pago) * 100);
+            const valorRateadoMovimentoCentavos = Math.round(movValorCentavos * (pct / 100));
+            realizadoCentavos += valorRateadoMovimentoCentavos;
+
+            realizadoMovimentos.push({
+              movimentoId: m.id,
+              parcelaId: m.parcela_id,
+              numeroDocumento: t.numero_documento,
+              descricao: t.descricao,
+              pessoaNome: (t.pessoa as any)?.nome || 'Fornecedor',
+              dataPagamento: m.data_pagamento,
+              formaPagamento: m.forma_pagamento,
+              valorPagoMovimentoCentavos: movValorCentavos,
+              valorRateadoMovimentoCentavos,
+              percentualRateio: pct
+            });
+          }
+        }
+      }
+
+      totalComprometidoCentavos += comprometidoCentavos;
+      totalRealizadoCentavos += realizadoCentavos;
+
+      const saldoCentavos = orcadoCentavos - comprometidoCentavos - realizadoCentavos;
+      const consumido = comprometidoCentavos + realizadoCentavos;
+      const percentualConsumido = orcadoCentavos > 0 ? (consumido / orcadoCentavos) * 100 : (consumido > 0 ? 100 : 0);
+      const isEstourado = consumido > orcadoCentavos;
+      const valorExcedenteCentavos = isEstourado ? consumido - orcadoCentavos : 0;
+
+      itensExecucao.push({
+        itemId: item.id,
+        itemCodigo: item.codigo,
+        itemDescricao: item.descricao,
+        centroCustoId: item.centroCustoId,
+        centroCustoCodigo: unidade?.codigo,
+        centroCustoNome: unidade ? unidade.nome : 'Toda a obra',
+        planoContaNivel2Id: pcGrupoId,
+        planoContaNivel2Codigo: pcCodigo,
+        planoContaNivel2Nome: pcNome,
+        orcadoCentavos,
+        comprometidoCentavos,
+        realizadoCentavos,
+        saldoCentavos,
+        percentualConsumido,
+        isEstourado,
+        valorExcedenteCentavos,
+        comprometidoTitulos,
+        realizadoMovimentos
+      });
+    }
+
+    const totalSaldoCentavos = totalOrcadoCentavos - totalComprometidoCentavos - totalRealizadoCentavos;
+    const totalConsumido = totalComprometidoCentavos + totalRealizadoCentavos;
+    const totalPercentualConsumido = totalOrcadoCentavos > 0 ? (totalConsumido / totalOrcadoCentavos) * 100 : 0;
+    const isEstouradoTotal = totalConsumido > totalOrcadoCentavos;
+    const totalValorExcedenteCentavos = isEstouradoTotal ? totalConsumido - totalOrcadoCentavos : 0;
+
+    return {
+      orcamentoId: orcamento.id,
+      versao: orcamento.versao,
+      status: orcamento.status,
+      centroCustoId: orcamento.centroCustoId,
+      centroCustoCodigo: orcamento.centroCustoCodigo,
+      centroCustoNome: orcamento.centroCustoNome,
+      dataInicio: orcamento.dataInicio,
+      dataFim: orcamento.dataFim,
+      dataCorte: dataCorteEfetiva,
+      totalOrcadoCentavos,
+      totalComprometidoCentavos,
+      totalRealizadoCentavos,
+      totalSaldoCentavos,
+      totalPercentualConsumido,
+      isEstouradoGeral: isEstouradoTotal,
+      totalExcedenteCentavos: totalValorExcedenteCentavos,
+      fraseStatusCurvaS: isEstouradoTotal ? 'Consumo acima do orçamento previsto' : 'Dentro do limite orçado',
+      curvaS: [],
+      itensExecucao,
+      temLinhaBaseV1: false,
+      totalOrcadoV1Centavos: 0,
+      variacaoV1TotalCentavos: 0,
+      variacaoV1TotalPercentual: 0
+    };
+  }
   async validarDisponibilidadeOrcamentaria(centroCustoId: string, planoContaId: string, valorCentavos: number): Promise<DisponibilidadeOrcamentariaResultado> { return this.fallbackMock.validarDisponibilidadeOrcamentaria(centroCustoId, planoContaId, valorCentavos); }
   async getRecorrencias(filtro?: any): Promise<Recorrencia[]> { return this.fallbackMock.getRecorrencias(filtro); }
   async getRecorrenciaById(id: string): Promise<Recorrencia | null> { return this.fallbackMock.getRecorrenciaById(id); }

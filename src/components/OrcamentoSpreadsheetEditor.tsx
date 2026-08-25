@@ -98,15 +98,16 @@ export function OrcamentoSpreadsheetEditor({
         try {
           const exec = await erpRepository.getOrcamentoExecucao(orcamentoId);
           if (exec && exec.itensExecucao) {
-            exec.itensExecucao.forEach(it => {
-              if (it.itemId) {
-                execucaoMap.set(it.itemId, {
-                  realizado: it.realizadoCentavos,
-                  comprometido: it.comprometidoCentavos,
-                  saldo: it.saldoCentavos,
-                  percentual: it.percentualConsumido
-                });
-              }
+            exec.itensExecucao.forEach((it, idx) => {
+              const data = {
+                realizado: it.realizadoCentavos,
+                comprometido: it.comprometidoCentavos,
+                saldo: it.saldoCentavos,
+                percentual: it.percentualConsumido
+              };
+              if (it.itemId) execucaoMap.set(it.itemId, data);
+              if (it.itemCodigo) execucaoMap.set(`code:${it.itemCodigo}`, data);
+              execucaoMap.set(`idx:${idx}`, data);
             });
           }
         } catch {
@@ -117,7 +118,9 @@ export function OrcamentoSpreadsheetEditor({
       if (initialItens && initialItens.length > 0) {
         const convertedRows: GridRowItem[] = initialItens.map((it, idx) => {
           const vtCentavos = it.valorTotalCentavos || 0;
-          const exec = it.id ? execucaoMap.get(it.id) : undefined;
+          const exec = (it.id ? execucaoMap.get(it.id) : undefined)
+            || (it.codigo ? execucaoMap.get(`code:${it.codigo}`) : undefined)
+            || execucaoMap.get(`idx:${idx}`);
           const totalPago = exec ? exec.realizado : 0;
           const totalComp = exec ? exec.comprometido : 0;
           const saldo = exec ? exec.saldo : (vtCentavos - totalPago - totalComp);
