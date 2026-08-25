@@ -761,8 +761,21 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
    * cujo orçamento já foi fechado.
    */
   const orcamentoDaObra = (obraId: string): Orcamento | null => {
-    const daObra = orcamentos.filter((o) => o.centroCustoId === obraId && o.status !== 'encerrado');
-    if (daObra.length === 0) return null;
+    if (!obraId) return null;
+    const daObra = orcamentos.filter(
+      (o) => (o.centroCustoId === obraId || o.id === obraId) && o.status !== 'encerrado'
+    );
+    if (daObra.length === 0) {
+      // Tenta achar qualquer orçamento que contenha unidades desta obra
+      const unidadesIds = new Set(unidadesDaObra(obraId).map((u) => u.id));
+      const orcComUnidade = orcamentos.find(
+        (o) =>
+          o.status !== 'encerrado' &&
+          (unidadesIds.has(o.centroCustoId) || o.itens.some((it) => it.centroCustoId && unidadesIds.has(it.centroCustoId)))
+      );
+      if (orcComUnidade) return orcComUnidade;
+      return null;
+    }
     return daObra.reduce((a, b) => {
       const aprovA = a.status === 'aprovado' ? 1 : 0;
       const aprovB = b.status === 'aprovado' ? 1 : 0;
@@ -789,7 +802,9 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
       }
       return [];
     }
-    const list = orc.itens.filter((i) => !i.centroCustoId || i.centroCustoId === unidadeId || i.id === currentItemId);
+    const list = orc.itens.filter(
+      (i) => !i.centroCustoId || !unidadeId || i.centroCustoId === unidadeId || i.id === currentItemId
+    );
     if (currentItemId && !list.some((i) => i.id === currentItemId)) {
       const it = orc.itens.find((i) => i.id === currentItemId) || itemOrcamentoPorId.get(currentItemId);
       if (it) list.push(it);

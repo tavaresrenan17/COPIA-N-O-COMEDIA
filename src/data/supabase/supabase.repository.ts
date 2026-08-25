@@ -1022,9 +1022,7 @@ export class SupabaseErpRepository implements IErpRepository {
 
     const itemUuid = toUuidOrNull(rateio.orcamentoItemId);
     if (itemUuid) {
-      if (await this.temColuna('titulo_rateio', 'orcamento_item_id')) {
-        linha.orcamento_item_id = itemUuid;
-      }
+      linha.orcamento_item_id = itemUuid;
     }
 
     // Plano de contas: o do item de orçamento manda, porque é ele que o usuário
@@ -1174,9 +1172,13 @@ export class SupabaseErpRepository implements IErpRepository {
       if (p.rateios && p.rateios.length > 0) {
         for (const r of p.rateios) {
           const ccUuid = toUuidOrNull(r.centroCustoId) || '99999999-9999-9999-9999-999999999999';
-          await this.client.from('titulo_rateio').insert(
+          const { error: rErr } = await this.client.from('titulo_rateio').insert(
             await this.montarRateio(insertedParcela.id, ccUuid, r, planoContaUuid)
           );
+          if (rErr) {
+            console.error('[createTitulo] Erro ao gravar rateio da parcela:', rErr);
+            throw new Error(`Falha ao gravar rateio da parcela ${p.numero}: ${rErr.message}`);
+          }
         }
       }
     }
@@ -1455,40 +1457,25 @@ export class SupabaseErpRepository implements IErpRepository {
       .filter((id): id is string => !!id);
     if (parcelaIds.length === 0) return;
 
-    // Colunas opcionais (migrations 08 e 09): pedir o que não existe derruba a
-    // consulta e a aba voltaria vazia justamente onde há dado gravado.
-    const [temItem, temPlano] = await Promise.all([
-      this.temColuna('titulo_rateio', 'orcamento_item_id'),
-      this.temColuna('titulo_rateio', 'plano_conta_id'),
-    ]);
-
-    const select = [
-      '*',
-      'centro_custo:centro_custo_id (id, codigo, nome, parent_id)',
-      temItem ? 'orcamento_item:orcamento_item_id (id, codigo, descricao)' : null,
-      temPlano ? 'plano_conta:plano_conta_id (id, codigo, nome)' : null,
-    ].filter(Boolean).join(', ');
-
-    const { data } = await this.client!
+    // Busca direta na tabela titulo_rateio sem joins frágeis do PostgREST
+    const { data: rateiosRaw, error } = await this.client!
       .from('titulo_rateio')
-      .select(select)
+      .select('*')
       .in('parcela_id', parcelaIds);
 
+    if (error || !rateiosRaw) {
+      console.error('[carregarRateiosDasParcelas] Erro ao ler titulo_rateio:', error?.message);
+      return;
+    }
+
     const porParcela = new Map<string, TituloRateio[]>();
-    for (const l of ((data ?? []) as any[])) {
+    for (const l of (rateiosRaw as any[])) {
       const lista = porParcela.get(l.parcela_id) ?? [];
       lista.push({
         id: l.id,
         centroCustoId: l.centro_custo_id,
-        centroCustoCodigo: l.centro_custo?.codigo,
-        centroCustoNome: l.centro_custo?.nome,
-        obraId: l.centro_custo?.parent_id ?? undefined,
         orcamentoItemId: l.orcamento_item_id ?? undefined,
-        orcamentoItemCodigo: l.orcamento_item?.codigo ?? undefined,
-        orcamentoItemDescricao: l.orcamento_item?.descricao ?? undefined,
         planoContaId: l.plano_conta_id ?? undefined,
-        planoContaCodigo: l.plano_conta?.codigo,
-        planoContaNome: l.plano_conta?.nome,
         percentual: Number(l.percentual),
         valorCentavos: Math.round(Number(l.valor) * 100),
         ativo: l.ativo ?? true,
