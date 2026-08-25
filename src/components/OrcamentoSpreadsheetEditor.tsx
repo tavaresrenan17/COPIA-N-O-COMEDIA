@@ -259,9 +259,9 @@ export function OrcamentoSpreadsheetEditor({
   const totalGeralSaldoCentavos = totalGeralEsperadoCentavos - totalGeralPagoCentavos - totalGeralComprometidoCentavos;
 
   function getSemaforoBadge(pct: number) {
-    if (pct > 100) return <span className="text-[10px] font-bold text-rose-700 bg-rose-100 px-2 py-0.5 rounded-md border border-rose-200">🔴 Estourado</span>;
-    if (pct >= 80) return <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-md border border-amber-200">🟡 Alerta</span>;
-    return <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md border border-emerald-200">🟢 Normal</span>;
+    if (pct > 100) return <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-100 px-2 py-0.5 rounded-full border border-rose-300 shadow-xs whitespace-nowrap shrink-0">🔴 Estourado</span>;
+    if (pct >= 80) return <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full border border-amber-300 shadow-xs whitespace-nowrap shrink-0">🟡 Alerta</span>;
+    return <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-300 shadow-xs whitespace-nowrap shrink-0">🟢 Normal</span>;
   }
 
   return (
@@ -336,16 +336,16 @@ export function OrcamentoSpreadsheetEditor({
         <table className="w-full text-left text-xs border-collapse">
           <thead>
             <tr className="bg-surface-muted border-b border-black/10 text-[11px] font-bold text-ink-muted uppercase sticky top-0 z-10">
-              <th className="p-3 w-28">Código</th>
-              <th className="p-3 min-w-[200px]">Unidade Construtiva</th>
-              <th className="p-3 min-w-[260px]">Item do Orçamento</th>
-              <th className="p-3 w-40 text-right text-brand font-bold" title="Valor total previsto cadastrado pelo engenheiro">
+              <th className="p-3 w-24">Código</th>
+              <th className="p-3 min-w-[180px]">Unidade Construtiva</th>
+              <th className="p-3 min-w-[220px]">Item do Orçamento</th>
+              <th className="p-3 min-w-[150px] text-right text-brand font-bold" title="Valor total previsto cadastrado pelo engenheiro">
                 Valor Esperado (R$)
               </th>
-              <th className="p-3 w-36 text-right text-emerald-700 bg-emerald-50/50">Total Pago (R$)</th>
-              <th className="p-3 w-36 text-right text-amber-700 bg-amber-50/50">A Pagar (R$)</th>
-              <th className="p-3 w-40 text-right text-ink-primary font-bold">Saldo em Aberto (R$)</th>
-              <th className="p-3 w-32 text-center">% Consumido</th>
+              <th className="p-3 min-w-[140px] text-right text-emerald-700 bg-emerald-50/50">Total Pago (R$)</th>
+              <th className="p-3 min-w-[140px] text-right text-amber-700 bg-amber-50/50">A Pagar (R$)</th>
+              <th className="p-3 min-w-[160px] text-right text-ink-primary font-bold">Saldo em Aberto (R$)</th>
+              <th className="p-3 min-w-[180px] text-center">% Consumido</th>
               {!isReadonly && <th className="p-3 w-14 text-center">Ações</th>}
             </tr>
           </thead>
@@ -446,18 +446,18 @@ export function OrcamentoSpreadsheetEditor({
                   </td>
 
                   {/* 8. % Consumido & Status */}
-                  <td className="p-2.5 text-center">
-                    <div className="flex flex-col items-center gap-1">
-                      <div className="flex items-center justify-between w-full text-[10px] font-bold font-mono">
-                        <span>{pct.toFixed(1)}%</span>
+                  <td className="p-3 text-center min-w-[180px]">
+                    <div className="flex flex-col gap-1.5 w-full">
+                      <div className="flex items-center justify-between gap-2 w-full">
+                        <span className="font-mono font-bold text-[11px] whitespace-nowrap text-ink-primary">{pct.toFixed(1)}%</span>
                         {getSemaforoBadge(pct)}
                       </div>
-                      <div className="w-full bg-black/5 rounded-full h-1.5 overflow-hidden">
+                      <div className="w-full bg-black/10 rounded-full h-2 overflow-hidden">
                         <div 
-                          className={`h-full ${
+                          className={`h-full transition-all duration-300 rounded-full ${
                             pct > 100 ? 'bg-rose-500' : pct >= 80 ? 'bg-amber-500' : 'bg-emerald-500'
                           }`}
-                          style={{ width: `${Math.min(100, pct)}%` }}
+                          style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
                         />
                       </div>
                     </div>
@@ -501,7 +501,7 @@ export function OrcamentoSpreadsheetEditor({
               }`}>
                 {formatCurrency(totalGeralSaldoCentavos)}
               </td>
-              <td className="p-3.5 text-center">
+              <td className="p-3.5 text-center min-w-[180px] font-mono font-bold text-xs text-ink-primary">
                 {totalGeralEsperadoCentavos > 0
                   ? `${(((totalGeralPagoCentavos + totalGeralComprometidoCentavos) / totalGeralEsperadoCentavos) * 100).toFixed(1)}%`
                   : '0.0%'}

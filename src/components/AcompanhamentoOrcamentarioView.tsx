@@ -122,9 +122,9 @@ export function AcompanhamentoOrcamentarioView() {
   }
 
   function getSemaforoBadge(pct: number) {
-    if (pct > 100) return <span className="text-[10px] font-bold text-rose-700 bg-rose-100 px-2 py-0.5 rounded-md border border-rose-200">🔴 Estourado</span>;
-    if (pct >= 80) return <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-md border border-amber-200">🟡 Alerta (&gt;80%)</span>;
-    return <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md border border-emerald-200">🟢 Normal</span>;
+    if (pct > 100) return <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-100 px-2 py-0.5 rounded-full border border-rose-300 shadow-xs whitespace-nowrap shrink-0">🔴 Estourado</span>;
+    if (pct >= 80) return <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full border border-amber-300 shadow-xs whitespace-nowrap shrink-0">🟡 Alerta</span>;
+    return <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-300 shadow-xs whitespace-nowrap shrink-0">🟢 Normal</span>;
   }
 
   return (
@@ -287,7 +287,7 @@ export function AcompanhamentoOrcamentarioView() {
                     <th className="py-3 px-3 text-right text-emerald-700 bg-emerald-50/40">Total Pago (R$)</th>
                     <th className="py-3 px-3 text-right text-amber-700 bg-amber-50/40">A Pagar (R$)</th>
                     <th className="py-3 px-3 text-right font-bold">Saldo Restante (R$)</th>
-                    <th className="py-3 px-3 text-center min-w-[140px]">% Consumido</th>
+                    <th className="py-3 px-3 text-center min-w-[180px]">% Consumido</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-black/5 font-medium">
@@ -367,16 +367,16 @@ export function AcompanhamentoOrcamentarioView() {
                           </td>
 
                           {/* % Consumido */}
-                          <td className="py-3 px-3 text-center">
-                            <div className="flex flex-col items-center gap-1">
-                              <div className="flex items-center justify-between w-full text-[11px] font-bold font-mono">
-                                <span>{it.percentualConsumido.toFixed(1)}%</span>
+                          <td className="py-3 px-3 text-center min-w-[180px]">
+                            <div className="flex flex-col gap-1.5 w-full">
+                              <div className="flex items-center justify-between gap-2 w-full">
+                                <span className="font-mono font-bold text-[11px] whitespace-nowrap text-ink-primary">{it.percentualConsumido.toFixed(1)}%</span>
                                 {getSemaforoBadge(it.percentualConsumido)}
                               </div>
-                              <div className="w-full bg-black/5 rounded-full h-1.5 overflow-hidden">
+                              <div className="w-full bg-black/10 rounded-full h-2 overflow-hidden">
                                 <div 
-                                  className={`h-full ${getSemaforoColor(it.percentualConsumido)}`}
-                                  style={{ width: `${Math.min(100, it.percentualConsumido)}%` }}
+                                  className={`h-full transition-all duration-300 rounded-full ${getSemaforoColor(it.percentualConsumido)}`}
+                                  style={{ width: `${Math.min(100, Math.max(0, it.percentualConsumido))}%` }}
                                 />
                               </div>
                             </div>
