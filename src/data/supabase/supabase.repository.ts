@@ -1022,6 +1022,9 @@ export class SupabaseErpRepository implements IErpRepository {
 
     const itemUuid = toUuidOrNull(rateio.orcamentoItemId);
     if (itemUuid) {
+      if (!(await this.temColuna('titulo_rateio', 'orcamento_item_id'))) {
+        throw erroMigration09('O Item de Orçamento da Apropriação');
+      }
       linha.orcamento_item_id = itemUuid;
     }
 
@@ -1036,20 +1039,29 @@ export class SupabaseErpRepository implements IErpRepository {
     return linha;
   }
 
-  /** Grava rateio com fallback caso o schema cache da API do Supabase esteja desatualizado */
+  /**
+   * Grava uma linha da Apropriação.
+   *
+   * Havia aqui um "fallback": quando o insert falhava citando
+   * `orcamento_item_id`, a linha era regravada SEM o item. O título era salvo,
+   * a tela dizia "Título salvo com sucesso" — e o Item de Orçamento que o
+   * usuário acabara de escolher sumia ao recarregar a página, sem nenhum aviso.
+   *
+   * É o mesmo erro que a migration 08 já tinha causado com o plano de contas:
+   * descartar em silêncio o que o usuário preencheu. Agora a gravação para e
+   * diz o que falta — `montarRateio` já barra o caso comum (coluna ausente);
+   * este ponto cobre o schema cache do PostgREST desatualizado, que só aparece
+   * na hora do insert.
+   */
   private async inserirRateioParcela(linha: Record<string, unknown>): Promise<void> {
     const { error } = await this.client!.from('titulo_rateio').insert(linha);
     if (!error) return;
 
-    // Se o banco ainda não tiver a coluna orcamento_item_id ou o cache ainda não atualizou:
-    if (/orcamento_item_id/i.test(error.message || '') || (error as any).code === 'PGRST204') {
-      const linhaSemItem = { ...linha };
-      delete linhaSemItem.orcamento_item_id;
-      const { error: retryErr } = await this.client!.from('titulo_rateio').insert(linhaSemItem);
-      if (retryErr) {
-        throw new Error(`Falha ao gravar rateio: ${retryErr.message}`);
-      }
-      return;
+    const sobreOItem =
+      /orcamento_item_id/i.test(error.message || '') || (error as { code?: string }).code === 'PGRST204';
+
+    if (linha.orcamento_item_id && sobreOItem) {
+      throw erroMigration09('O Item de Orçamento da Apropriação');
     }
 
     throw new Error(`Falha ao gravar rateio: ${error.message}`);
@@ -1103,8 +1115,29 @@ export class SupabaseErpRepository implements IErpRepository {
     return rateios.reduce((a, b) => (b.percentual > a.percentual ? b : a));
   }
 
+  /**
+   * Recusa a gravação ANTES de tocar no banco quando a Apropriação traz Item de
+   * Orçamento e a coluna da migration 09 não existe.
+   *
+   * A checagem precisa vir aqui, e não só na hora do insert do rateio:
+   * `updateTitulo` apaga e recria as parcelas antes de chegar nos rateios, e
+   * falhar no meio deixaria o título com parcelas novas e apropriação nenhuma.
+   */
+  private async validarApropriacao(data: TituloInput): Promise<void> {
+    const temItem = (data.parcelas ?? []).some(p =>
+      (p.rateios ?? []).some(r => toUuidOrNull(r.orcamentoItemId))
+    );
+    if (!temItem) return;
+
+    if (!(await this.temColuna('titulo_rateio', 'orcamento_item_id'))) {
+      throw erroMigration09('O Item de Orçamento da Apropriação');
+    }
+  }
+
   async createTitulo(data: TituloInput): Promise<Titulo> {
     if (!this.client) return this.fallbackMock.createTitulo(data);
+
+    await this.validarApropriacao(data);
 
     const pessoaUuid = toUuidOrNull(data.pessoaId);
     if (!pessoaUuid) throw new Error('Selecione um Cliente ou Fornecedor válido.');
@@ -1205,6 +1238,8 @@ export class SupabaseErpRepository implements IErpRepository {
 
   async updateTitulo(id: string, data: TituloInput): Promise<Titulo> {
     if (!this.client) return this.fallbackMock.updateTitulo(id, data);
+
+    await this.validarApropriacao(data);
 
     const pessoaUuid = toUuidOrNull(data.pessoaId);
     if (!pessoaUuid) throw new Error('Selecione um Cliente ou Fornecedor válido.');
