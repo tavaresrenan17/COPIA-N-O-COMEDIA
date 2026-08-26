@@ -1,4 +1,4 @@
-import { supabase, isSupabaseConfigured } from '@/lib/supabase/client';
+import { supabase, isSupabaseConfigured, supabaseProjectRef } from '@/lib/supabase/client';
 import { IErpRepository, TituloInput, FiltroParcelas } from '../repository.interface';
 import { MockErpRepository } from '../mock/mock.repository';
 import {
@@ -64,12 +64,20 @@ import {
  *
  * Quando o campo veio preenchido e a coluna não existe, o certo é recusar a
  * gravação e dizer o que falta.
+ *
+ * A mensagem NOMEIA o projeto Supabase. Há dois bancos com o mesmo schema, e as
+ * credenciais são NEXT_PUBLIC_* — gravadas no build. Um deploy publicado com as
+ * variáveis antigas fala com o banco antigo mesmo depois da migration aplicada
+ * no certo, e sem o `ref` na tela isso parece "a migration não pegou".
  */
 function erroMigration09(oQue: string): Error {
   return new Error(
-    `${oQue} não pôde ser gravado: este banco ainda não tem a migration 09 ` +
+    `${oQue} não pôde ser gravado: o banco em uso (projeto Supabase ` +
+    `"${supabaseProjectRef}") não tem a migration 09 ` +
     '(supabase/migrations/09_obra_unidade_item_orcamento.sql). ' +
-    'Rode-a no Supabase → SQL Editor e tente de novo.'
+    'Se esse é o projeto certo, rode a migration no Supabase → SQL Editor. ' +
+    'Se não é, corrija NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY ' +
+    'no ambiente (na Vercel, exige REDEPLOY: essas variáveis entram no build).'
   );
 }
 
