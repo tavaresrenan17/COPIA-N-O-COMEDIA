@@ -182,16 +182,24 @@ function unidadesDaObraEm(centroCustos: CentroCusto[], obraId: string): CentroCu
  * orçamentos pendurados nas unidades construtivas, então uma obra cujo único
  * orçamento mora na unidade abria com o campo vazio e o combo de item travado.
  *
- * Orçamento encerrado fica de fora — apropriar contra ele seria lançar em obra
- * cujo orçamento já foi fechado.
+ * Ficam de fora as planilhas que não podem mais receber apropriação:
+ * - `encerrado`: o orçamento da obra já foi fechado;
+ * - `revisado`: foi substituído por uma revisão, e é a revisão que vale. Sem
+ *   este segundo filtro, gerar uma revisão passava a oferecer as DUAS no combo,
+ *   e a antiga voltaria a receber lançamento novo.
+ *
+ * Uma planilha nessas condições que já esteja apontada num rateio gravado
+ * continua visível na linha, como opção desabilitada — ver o render da tabela.
  */
+const STATUS_FORA_DA_APROPRIACAO = ['encerrado', 'revisado'];
+
 function orcamentosVivosDaObra(
   orcamentos: Orcamento[],
   centroCustos: CentroCusto[],
   obraId: string
 ): Orcamento[] {
   if (!obraId) return [];
-  const vivos = orcamentos.filter((o) => o.status !== 'encerrado');
+  const vivos = orcamentos.filter((o) => !STATUS_FORA_DA_APROPRIACAO.includes(o.status));
   const daObra = vivos.filter((o) => o.centroCustoId === obraId || o.id === obraId);
 
   let lista = daObra;

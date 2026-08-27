@@ -1368,7 +1368,18 @@ export class MockErpRepository implements IErpRepository {
         const pcFolha = mockPlanoContas.find(pc => pc.id === t.planoContaId);
         if (!pcFolha) return;
 
-        let pcPaiNivel2 = mockPlanoContas.find(pc => pc.id === pcFolha.parentId);
+        /*
+         * Conta que JÁ É nível 2 é o próprio grupo — não sobe para o pai.
+         *
+         * Sem esta primeira linha, um título classificado em "2.1 Mão de obra"
+         * subia para "2 CUSTOS DIRETOS" enquanto outro em "2.1.01 Salários de
+         * obra" caía em "2.1": o mesmo custo em dois grupos diferentes. Acontece
+         * porque a Apropriação copia para o título o plano do item de orçamento,
+         * e item de orçamento carrega conta de nível 2 por definição.
+         */
+        let pcPaiNivel2 = pcFolha.nivel === 2
+          ? pcFolha
+          : mockPlanoContas.find(pc => pc.id === pcFolha.parentId);
         if (pcPaiNivel2 && pcPaiNivel2.nivel > 2) {
           pcPaiNivel2 = mockPlanoContas.find(pc => pc.id === pcPaiNivel2?.parentId);
         }
