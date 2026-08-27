@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -8,9 +7,7 @@ import {
   Building2,
   ClipboardList,
   BarChart3,
-  ChevronDown,
   ArrowLeft,
-  Grid,
   PanelLeftClose,
   PanelLeftOpen,
 } from 'lucide-react';
@@ -106,29 +103,6 @@ export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { isCollapsed, toggleSidebar } = useSidebar();
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-  const switcherRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!dropdownOpen) return;
-
-    const aoClicarFora = (e: MouseEvent) => {
-      if (!switcherRef.current?.contains(e.target as Node)) setDropdownOpen(false);
-    };
-    const aoTeclar = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setDropdownOpen(false);
-    };
-
-    document.addEventListener('mousedown', aoClicarFora);
-    document.addEventListener('keydown', aoTeclar);
-    return () => {
-      document.removeEventListener('mousedown', aoClicarFora);
-      document.removeEventListener('keydown', aoTeclar);
-    };
-  }, [dropdownOpen]);
-
-  /* Fecha ao navegar. */
-  useEffect(() => setDropdownOpen(false), [pathname]);
 
   const idDepartamentoAtivo = Object.keys(DEPARTMENTS).find((chave) => {
     const dept = DEPARTMENTS[chave];
@@ -141,11 +115,6 @@ export function Sidebar() {
   const departamentoAtivo: DepartmentConfig | undefined = idDepartamentoAtivo
     ? DEPARTMENTS[idDepartamentoAtivo]
     : undefined;
-
-  const selecionarDepartamento = (deptId: string) => {
-    setDropdownOpen(false);
-    router.push(deptId === 'global' ? '/departamentos' : DEPARTMENTS[deptId].baseHref);
-  };
 
   return (
     <aside
@@ -171,7 +140,6 @@ export function Sidebar() {
               </div>
             </Link>
           )}
-
           <button
             type="button"
             onClick={toggleSidebar}
@@ -180,106 +148,6 @@ export function Sidebar() {
           >
             {isCollapsed ? <PanelLeftOpen className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
           </button>
-        </div>
-
-        {/* Seletor de ambiente */}
-        <div className="relative" ref={switcherRef}>
-          <button
-            onClick={() => setDropdownOpen((v) => !v)}
-            aria-expanded={dropdownOpen}
-            aria-haspopup="menu"
-            title={isCollapsed ? (departamentoAtivo ? departamentoAtivo.name : 'Visão Geral') : undefined}
-            className={`flex w-full items-center ${
-              isCollapsed ? 'justify-center p-2' : 'justify-between gap-2 p-2.5'
-            } rounded-xl border border-white/10 bg-white/[0.04] text-left transition-colors hover:bg-white/[0.07]`}
-          >
-            <span className="flex min-w-0 items-center gap-2.5">
-              <span
-                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-white ${
-                  departamentoAtivo ? departamentoAtivo.themeColor : 'bg-brand'
-                }`}
-              >
-                {departamentoAtivo ? (
-                  <departamentoAtivo.Icon className="h-3.5 w-3.5" />
-                ) : (
-                  <Grid className="h-3.5 w-3.5" />
-                )}
-              </span>
-              {!isCollapsed && (
-                <span className="truncate text-[13px] font-semibold text-white">
-                  {departamentoAtivo ? departamentoAtivo.name : 'Visão Geral'}
-                </span>
-              )}
-            </span>
-            {!isCollapsed && (
-              <ChevronDown
-                className={`h-4 w-4 shrink-0 text-white/40 transition-transform ${
-                  dropdownOpen ? 'rotate-180' : ''
-                }`}
-              />
-            )}
-          </button>
-
-          {dropdownOpen && (
-            <div
-              role="menu"
-              className={`absolute top-full z-50 mt-2 max-h-[60vh] overflow-y-auto rounded-xl border border-white/10 bg-[#1A182D] py-1.5 shadow-2xl ${
-                isCollapsed ? 'left-full ml-2 w-48' : 'left-0 w-full'
-              }`}
-            >
-              <button
-                role="menuitem"
-                onClick={() => selecionarDepartamento('global')}
-                className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] transition-colors hover:bg-white/[0.07] ${
-                  !departamentoAtivo ? 'font-semibold text-brand' : 'text-white/75'
-                }`}
-              >
-                <Grid className="h-4 w-4 shrink-0 text-white/40" />
-                <span className="truncate">Visão Geral</span>
-              </button>
-
-              <div className="my-1.5 border-t border-white/10" />
-              <RotuloSecao>Departamentos</RotuloSecao>
-
-              {Object.values(DEPARTMENTS)
-                .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
-                .map((dept) => {
-                  const Icon = dept.Icon;
-                  const selecionado = idDepartamentoAtivo === dept.id;
-                  return (
-                    <button
-                      key={dept.id}
-                      role="menuitem"
-                      disabled={dept.inativo}
-                      onClick={() => selecionarDepartamento(dept.id)}
-                      className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-[13px] transition-colors ${
-                        dept.inativo
-                          ? 'cursor-not-allowed text-white/30'
-                          : selecionado
-                            ? 'bg-white/[0.07] font-semibold text-white'
-                            : 'text-white/75 hover:bg-white/[0.07]'
-                      }`}
-                    >
-                      <span className="flex min-w-0 items-center gap-2.5">
-                        <span
-                          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-white ${
-                            dept.inativo ? 'bg-white/10' : dept.themeColor
-                          }`}
-                        >
-                          <Icon className="h-3 w-3" />
-                        </span>
-                        <span className="truncate">{dept.name}</span>
-                      </span>
-                      {dept.inativo && (
-                        <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wide text-white/30">
-                          Off
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-            </div>
-          )}
         </div>
       </div>
 
