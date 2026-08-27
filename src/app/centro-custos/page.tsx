@@ -59,22 +59,41 @@ export default function CentroCustosPage() {
     setLoading(false);
   }
 
+  const getLinhaVinculadaDoCentroOuAncestrais = (centroId?: string | null) => {
+    let atualId = centroId;
+    while (atualId) {
+      const linha = linhasGestao.find((l) => l.centroCustoId === atualId);
+      if (linha) return linha;
+      const centro = centrosTodos.find((c) => c.id === atualId);
+      atualId = centro?.parentId;
+    }
+    return null;
+  };
+
   const handleOpenNewModal = (parent?: TreeNode) => {
     setEditingId(null);
     if (parent) {
       setFormParentId(parent.id);
       setFormTipo((parent as any).tipo || 'obra');
       setFormCodigo(proximoCodigo(centrosTodos, parent));
+
+      // Herda automaticamente o Grupo e a Linha de Gestão da Obra de origem
+      const linhaPai = getLinhaVinculadaDoCentroOuAncestrais(parent.id);
+      if (linhaPai) {
+        setFormGrupoGestaoId(linhaPai.grupoGestaoId);
+        setFormLinhaGestaoId(linhaPai.id);
+      } else {
+        setFormGrupoGestaoId('');
+        setFormLinhaGestaoId('');
+      }
     } else {
       setFormParentId('');
-      // Antes: `CC-${centrosAtivos.length + 1}` — contar linhas fazia o número
-      // retroceder após uma exclusão e colidir com o código único.
       setFormCodigo(proximoCodigo(centrosTodos));
       setFormTipo('obra');
+      setFormGrupoGestaoId('');
+      setFormLinhaGestaoId('');
     }
     setFormNome('');
-    setFormGrupoGestaoId('');
-    setFormLinhaGestaoId('');
     setFormAceitaLancamento(true);
     setFormDataInicio('');
     setFormDataFim('');
@@ -93,8 +112,10 @@ export default function CentroCustosPage() {
     setFormDataInicio(item.dataInicio || '');
     setFormDataFim(item.dataFim || '');
 
-    // Busca linha de gestão vinculada a este centro de custo
-    const linhaVinculada = linhasGestao.find((l) => l.centroCustoId === item.id);
+    // Busca linha de gestão vinculada a este centro de custo ou herdada da Obra pai
+    const linhaVinculada =
+      linhasGestao.find((l) => l.centroCustoId === item.id) ||
+      (item.parentId ? getLinhaVinculadaDoCentroOuAncestrais(item.parentId) : null);
     if (linhaVinculada) {
       setFormGrupoGestaoId(linhaVinculada.grupoGestaoId);
       setFormLinhaGestaoId(linhaVinculada.id);
@@ -173,29 +194,44 @@ export default function CentroCustosPage() {
 
     // Sincroniza o vínculo com a Linha de Gestão
     if (centroCustoSalvoId) {
-      const linhaAnterior = linhasGestao.find((l) => l.centroCustoId === centroCustoSalvoId);
+      const isRaiz = !formParentId;
 
-      if (formLinhaGestaoId) {
-        // Se mudou de linha de gestão, desvincula a linha anterior
-        if (linhaAnterior && linhaAnterior.id !== formLinhaGestaoId) {
+      if (isRaiz) {
+        // Obra / Centro de Custo Raiz: atualiza o centroCustoId na Linha de Gestão
+        const linhaAnterior = linhasGestao.find((l) => l.centroCustoId === centroCustoSalvoId);
+
+        if (formLinhaGestaoId) {
+          if (linhaAnterior && linhaAnterior.id !== formLinhaGestaoId) {
+            try {
+              await erpRepository.updateLinhaGestao(linhaAnterior.id, { centroCustoId: undefined });
+            } catch (e) {
+              console.warn('Erro ao desvincular linha anterior:', e);
+            }
+          }
+          try {
+            await erpRepository.updateLinhaGestao(formLinhaGestaoId, { centroCustoId: centroCustoSalvoId });
+          } catch (e) {
+            console.warn('Erro ao vincular linha de gestão:', e);
+          }
+        } else if (linhaAnterior) {
           try {
             await erpRepository.updateLinhaGestao(linhaAnterior.id, { centroCustoId: undefined });
           } catch (e) {
-            console.warn('Erro ao desvincular linha anterior:', e);
+            console.warn('Erro ao desvincular linha de gestão:', e);
           }
         }
-        // Vincula a nova linha de gestão
-        try {
-          await erpRepository.updateLinhaGestao(formLinhaGestaoId, { centroCustoId: centroCustoSalvoId });
-        } catch (e) {
-          console.warn('Erro ao vincular linha de gestão:', e);
-        }
-      } else if (linhaAnterior) {
-        // Usuário removeu o vínculo
-        try {
-          await erpRepository.updateLinhaGestao(linhaAnterior.id, { centroCustoId: undefined });
-        } catch (e) {
-          console.warn('Erro ao desvincular linha de gestão:', e);
+      } else {
+        // Unidade Construtiva (filho): garante que a Linha de Gestão selecionada continue apontando para a Obra raiz
+        const obraPaiId = formParentId;
+        if (formLinhaGestaoId && obraPaiId) {
+          const linhaEscolhida = linhasGestao.find((l) => l.id === formLinhaGestaoId);
+          if (linhaEscolhida && !linhaEscolhida.centroCustoId) {
+            try {
+              await erpRepository.updateLinhaGestao(formLinhaGestaoId, { centroCustoId: obraPaiId });
+            } catch (e) {
+              console.warn('Erro ao vincular Linha de Gestão à Obra raiz:', e);
+            }
+          }
         }
       }
     }
@@ -463,9 +499,19 @@ export default function CentroCustosPage() {
                     <select
                       value={formParentId}
                       onChange={(e) => {
-                        const novoPai = centrosTodos.find((c) => c.id === e.target.value) || null;
-                        setFormParentId(e.target.value);
+                        const novoPaiId = e.target.value;
+                        const novoPai = centrosTodos.find((c) => c.id === novoPaiId) || null;
+                        setFormParentId(novoPaiId);
                         setFormCodigo(proximoCodigo(centrosTodos.filter((c) => c.id !== editingId), novoPai));
+
+                        // Se selecionou uma Obra (unidade construtiva), herda automaticamente a Linha de Gestão da Obra
+                        if (novoPaiId) {
+                          const linhaPai = getLinhaVinculadaDoCentroOuAncestrais(novoPaiId);
+                          if (linhaPai) {
+                            setFormGrupoGestaoId(linhaPai.grupoGestaoId);
+                            setFormLinhaGestaoId(linhaPai.id);
+                          }
+                        }
                       }}
                       className="w-full bg-surface-muted border border-black/10 rounded-xl px-3 py-2 text-xs text-ink-primary focus:outline-none focus:ring-2 focus:ring-brand"
                     >
@@ -611,14 +657,22 @@ export default function CentroCustosPage() {
                         <Layers className="w-3.5 h-3.5 text-brand" />
                         <span>Linha de Gestão Vinculada</span>
                       </label>
-                      <span className="text-[10px] text-ink-muted bg-white px-2 py-0.5 rounded-md border border-black/5 font-medium">
-                        Alocação & Apropriação
+                      <span
+                        className={`text-[10px] px-2 py-0.5 rounded-md border font-semibold flex items-center gap-1 ${
+                          ehLinha
+                            ? 'bg-purple-50 text-purple-700 border-purple-200/80'
+                            : 'bg-white text-ink-muted border-black/5'
+                        }`}
+                      >
+                        {ehLinha ? '✨ Herdada da Obra' : 'Alocação & Apropriação'}
                       </span>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-[11px] font-semibold text-ink-muted mb-1">Grupo de Gestão</label>
+                        <label className="block text-[11px] font-semibold text-ink-muted mb-1">
+                          Grupo de Gestão {ehLinha && <span className="text-[10px] text-purple-600 font-normal">(da Obra)</span>}
+                        </label>
                         <select
                           value={formGrupoGestaoId}
                           onChange={(e) => {
@@ -639,7 +693,9 @@ export default function CentroCustosPage() {
                       </div>
 
                       <div>
-                        <label className="block text-[11px] font-semibold text-ink-muted mb-1">Linha de Gestão</label>
+                        <label className="block text-[11px] font-semibold text-ink-muted mb-1">
+                          Linha de Gestão {ehLinha && <span className="text-[10px] text-purple-600 font-normal">(da Obra)</span>}
+                        </label>
                         <select
                           value={formLinhaGestaoId}
                           onChange={(e) => setFormLinhaGestaoId(e.target.value)}
@@ -661,9 +717,9 @@ export default function CentroCustosPage() {
                     </div>
 
                     <p className="text-[11px] text-ink-muted leading-relaxed">
-                      Vincular este Centro de Custo a uma Linha de Gestão permite que, ao selecionar a Linha na{' '}
-                      <strong>Alocação de Gestão</strong> do título, esta Obra, suas Unidades Construtivas e Itens de Orçamento
-                      fiquem disponíveis para <strong>Apropriação</strong>.
+                      {ehLinha
+                        ? 'Esta Unidade Construtiva herda e segue a Linha de Gestão da Obra principal, garantindo que suas apropriações e lançamentos fiquem centralizados e consistentes no mesmo centro de custo.'
+                        : 'Vincular esta Obra a uma Linha de Gestão permite que, ao selecionar a Linha na Alocação de Gestão do título, esta Obra, suas Unidades Construtivas e Itens de Orçamento fiquem disponíveis para Apropriação.'}
                     </p>
                   </div>
                 </div>
