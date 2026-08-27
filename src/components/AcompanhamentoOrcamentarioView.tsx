@@ -42,6 +42,9 @@ export function AcompanhamentoOrcamentarioView() {
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
   const [compararV1, setCompararV1] = useState<boolean>(false);
 
+  /** A planilha em tela — a execução não carrega o nome nem o vínculo de revisão. */
+  const orcamentoSelecionado = orcamentos.find(o => o.id === selectedOrcamentoId) || null;
+
   useEffect(() => {
     loadOrcamentos();
   }, []);
@@ -103,6 +106,15 @@ export function AcompanhamentoOrcamentarioView() {
 
     csv += `\nTOTAIS;CONSOLIDADOS;${(execucaoData.totalOrcadoCentavos/100).toFixed(2).replace('.', ',')};${(execucaoData.totalComprometidoCentavos/100).toFixed(2).replace('.', ',')};${(execucaoData.totalRealizadoCentavos/100).toFixed(2).replace('.', ',')};${(execucaoData.totalSaldoCentavos/100).toFixed(2).replace('.', ',')};${execucaoData.totalPercentualConsumido.toFixed(1)}%\n`;
 
+    /*
+     * Fora dos totais de propósito: lançamento sem item não consome orçamento
+     * nenhum. Vai no CSV para o valor não desaparecer da conferência.
+     */
+    const semItem = execucaoData.semItemOrcamento;
+    if (semItem.comprometidoCentavos > 0 || semItem.realizadoCentavos > 0) {
+      csv += `\nSEM ITEM DE ORÇAMENTO (não consome orçamento);;;${(semItem.comprometidoCentavos/100).toFixed(2).replace('.', ',')};${(semItem.realizadoCentavos/100).toFixed(2).replace('.', ',')}\n`;
+    }
+
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -139,9 +151,16 @@ export function AcompanhamentoOrcamentarioView() {
               onChange={(e) => setSelectedOrcamentoId(e.target.value)}
               className="bg-transparent text-xs font-bold text-ink-primary focus:outline-none"
             >
+              {/*
+                O `v{n}` só aparece em revisão de verdade. Um centro de custo
+                pode ter várias planilhas paralelas, e como o número é sequencial
+                por centro de custo, a segunda nasce "v2" sem revisar nada — lido
+                como "revisão 2", escondia que são orçamentos diferentes.
+              */}
               {orcamentos.map(o => (
                 <option key={o.id} value={o.id}>
-                  {o.centroCustoCodigo} - {o.nome} (v{o.versao}) {o.status === 'aprovado' ? '★ Aprovado' : ''}
+                  {o.centroCustoCodigo} - {o.nome}
+                  {o.orcamentoBaseId ? ` (v${o.versao})` : ''} {o.status === 'aprovado' ? '★ Aprovado' : ''}
                 </option>
               ))}
             </select>
@@ -191,7 +210,12 @@ export function AcompanhamentoOrcamentarioView() {
               <div className="text-xl font-bold font-mono text-ink-primary mt-1">
                 {formatCurrency(execucaoData.totalOrcadoCentavos)}
               </div>
-              <span className="text-[10px] text-ink-muted mt-1 block">Planejado v{execucaoData.versao}</span>
+              {/* Nomeia a planilha; o v{n} só quando é revisão de verdade — ver o seletor acima. */}
+              <span className="text-[10px] text-ink-muted mt-1 block truncate">
+                {orcamentoSelecionado
+                  ? `${orcamentoSelecionado.nome}${orcamentoSelecionado.orcamentoBaseId ? ` v${execucaoData.versao}` : ''}`
+                  : `Planejado v${execucaoData.versao}`}
+              </span>
             </div>
 
             <div className="bg-surface rounded-2xl p-4 shadow-soft border border-black/[0.04]">
@@ -407,8 +431,8 @@ export function AcompanhamentoOrcamentarioView() {
                                           </tr>
                                         </thead>
                                         <tbody className="divide-y divide-black/5">
-                                          {it.comprometidoTitulos.map(t => (
-                                            <tr key={t.parcelaId}>
+                                          {it.comprometidoTitulos.map((t, i) => (
+                                            <tr key={`${t.parcelaId}-${i}`}>
                                               <td className="p-1">
                                                 <span className="font-bold text-ink-primary block">{t.pessoaNome}</span>
                                                 <span className="text-[10px] text-ink-muted">Doc: {t.numeroDocumento || '-'}</span>
@@ -446,8 +470,8 @@ export function AcompanhamentoOrcamentarioView() {
                                           </tr>
                                         </thead>
                                         <tbody className="divide-y divide-black/5">
-                                          {it.realizadoMovimentos.map(m => (
-                                            <tr key={m.movimentoId}>
+                                          {it.realizadoMovimentos.map((m, i) => (
+                                            <tr key={`${m.movimentoId}-${i}`}>
                                               <td className="p-1">
                                                 <span className="font-bold text-ink-primary block">{m.pessoaNome}</span>
                                                 <span className="text-[10px] text-ink-muted">Doc: {m.numeroDocumento || '-'}</span>
@@ -492,6 +516,133 @@ export function AcompanhamentoOrcamentarioView() {
               </table>
             </div>
           </div>
+
+          {/*
+            LANÇAMENTOS SEM ITEM DE ORÇAMENTO
+
+            Um centro de custo pode ter mais de um orçamento ao mesmo tempo (obras
+            paralelas, não revisões). O que é lançado no centro de custo sem
+            apontar item não pertence a nenhuma planilha — antes ele era casado
+            por centro de custo e somava como consumo em TODAS elas, o mesmo
+            dinheiro contado duas vezes. Agora fica aqui: fora dos totais, mas
+            visível, para ser classificado no cadastro do título.
+          */}
+          {(execucaoData.semItemOrcamento.comprometidoCentavos > 0 ||
+            execucaoData.semItemOrcamento.realizadoCentavos > 0) && (
+            <div className="bg-surface rounded-2xl shadow-soft border border-amber-500/30 overflow-hidden">
+              <button
+                onClick={() => toggleRowExpand('__sem-item__')}
+                className="w-full flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-5 text-left hover:bg-black/[0.02] transition-colors"
+              >
+                <div className="flex items-start gap-3">
+                  {expandedRows['__sem-item__'] ? (
+                    <ChevronDown className="w-4 h-4 text-brand mt-0.5 shrink-0" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 text-ink-muted mt-0.5 shrink-0" />
+                  )}
+                  <div>
+                    <span className="text-xs font-bold uppercase tracking-wider text-amber-700 block">
+                      Sem item de orçamento
+                    </span>
+                    <p className="text-[11px] text-ink-muted mt-1 max-w-xl leading-relaxed">
+                      Lançado em {execucaoData.centroCustoNome} sem apontar item de orçamento.
+                      Não consome nenhuma planilha e está fora dos totais acima — para entrar no
+                      consumo, abra o título e escolha o Item de Orçamento na aba Apropriação.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex gap-6 sm:pl-4 shrink-0">
+                  <div className="text-right">
+                    <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wider block">A Pagar</span>
+                    <span className="text-base font-bold font-mono text-amber-600">
+                      {formatCurrency(execucaoData.semItemOrcamento.comprometidoCentavos)}
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider block">Pago</span>
+                    <span className="text-base font-bold font-mono text-emerald-600">
+                      {formatCurrency(execucaoData.semItemOrcamento.realizadoCentavos)}
+                    </span>
+                  </div>
+                </div>
+              </button>
+
+              {expandedRows['__sem-item__'] && (
+                <div className="border-t border-black/5 bg-surface-muted/40 p-5 grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <div className="bg-surface p-3 rounded-xl border border-black/10 space-y-2">
+                    <span className="text-xs font-bold text-amber-700 uppercase tracking-wider block">
+                      Títulos em aberto ({execucaoData.semItemOrcamento.comprometidoTitulos.length})
+                    </span>
+                    {execucaoData.semItemOrcamento.comprometidoTitulos.length === 0 ? (
+                      <p className="text-[11px] text-ink-muted italic">Nenhum título em aberto sem item.</p>
+                    ) : (
+                      <div className="overflow-x-auto max-h-48">
+                        <table className="w-full text-left text-[11px]">
+                          <thead>
+                            <tr className="text-ink-muted border-b border-black/10 font-bold">
+                              <th className="p-1">Fornecedor</th>
+                              <th className="p-1 text-center">Vencimento</th>
+                              <th className="p-1 text-right">Valor Rateado</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-black/5">
+                            {execucaoData.semItemOrcamento.comprometidoTitulos.map((t, i) => (
+                              <tr key={`${t.parcelaId}-${i}`}>
+                                <td className="p-1">
+                                  <span className="font-bold text-ink-primary block">{t.pessoaNome}</span>
+                                  <span className="text-[10px] text-ink-muted">Doc: {t.numeroDocumento || '-'}</span>
+                                </td>
+                                <td className="p-1 text-center font-mono">{t.dataVencimento.split('-').reverse().join('/')}</td>
+                                <td className="p-1 text-right font-mono font-bold text-amber-600">
+                                  {formatCurrency(t.valorRateadoCentavos)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="bg-surface p-3 rounded-xl border border-black/10 space-y-2">
+                    <span className="text-xs font-bold text-emerald-700 uppercase tracking-wider block">
+                      Movimentações pagas ({execucaoData.semItemOrcamento.realizadoMovimentos.length})
+                    </span>
+                    {execucaoData.semItemOrcamento.realizadoMovimentos.length === 0 ? (
+                      <p className="text-[11px] text-ink-muted italic">Nenhuma movimentação paga sem item.</p>
+                    ) : (
+                      <div className="overflow-x-auto max-h-48">
+                        <table className="w-full text-left text-[11px]">
+                          <thead>
+                            <tr className="text-ink-muted border-b border-black/10 font-bold">
+                              <th className="p-1">Fornecedor</th>
+                              <th className="p-1 text-center">Data Pagto</th>
+                              <th className="p-1 text-right">Valor Pago Rateado</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-black/5">
+                            {execucaoData.semItemOrcamento.realizadoMovimentos.map((m, i) => (
+                              <tr key={`${m.movimentoId}-${i}`}>
+                                <td className="p-1">
+                                  <span className="font-bold text-ink-primary block">{m.pessoaNome}</span>
+                                  <span className="text-[10px] text-ink-muted">Doc: {m.numeroDocumento || '-'}</span>
+                                </td>
+                                <td className="p-1 text-center font-mono">{m.dataPagamento.split('-').reverse().join('/')}</td>
+                                <td className="p-1 text-right font-mono font-bold text-emerald-600">
+                                  {formatCurrency(m.valorRateadoMovimentoCentavos)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* CURVA S */}
           <div className="bg-surface rounded-2xl p-6 shadow-soft border border-black/[0.03] space-y-6">

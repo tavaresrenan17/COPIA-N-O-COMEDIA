@@ -1,4 +1,5 @@
 import { IErpRepository, FiltroParcelas, TituloInput } from '../repository.interface';
+import { rateiosDoItem, rateiosSemItem, RateioCasado } from '../orcamento/casamento-rateio';
 import { 
   Pessoa, 
   PlanoConta, 
@@ -11,6 +12,7 @@ import {
   LinhaGestao,
   Titulo,
   TituloParcela,
+  TituloRateio,
   Movimento,
   ParcelaView,
   TipoTitulo,
@@ -2072,15 +2074,16 @@ export class MockErpRepository implements IErpRepository {
     let totalRealizadoCentavos = 0;
     let totalOrcadoV1Centavos = 0;
 
-    for (const item of orcamento.itens) {
-      const pcGrupoId = item.planoContaId || item.planoContaNivel2Id || '';
-      const pcCodigo = item.planoContaCodigo || item.planoContaNivel2Codigo || '';
-      const pcNome = item.planoContaNome || item.planoContaNivel2Nome || '';
-      const orcadoCentavos = item.valorTotalCentavos;
-      totalOrcadoCentavos += orcadoCentavos;
-
-      const unidade = item.centroCustoId ? mockCentrosCusto.find(c => c.id === item.centroCustoId) : null;
-
+    /**
+     * Varre títulos e movimentos somando o que os rateios escolhidos consomem.
+     *
+     * `escolherRateios` é a única coisa que muda entre um item de orçamento e o
+     * bloco "sem item de orçamento" — espelha `coletarConsumo` do repositório
+     * Supabase, que fazia a mesma conta com um predicado ligeiramente diferente
+     * (aqui o fallback por centro de custo ainda checava plano de contas, lá
+     * não). Com o casamento só por item, a divergência deixa de existir.
+     */
+    const coletarConsumo = (escolherRateios: (rateios: TituloRateio[] | undefined) => RateioCasado<TituloRateio>[]) => {
       const comprometidoTitulos: ComprometidoTituloItem[] = [];
       const realizadoMovimentos: RealizadoMovimentoItem[] = [];
 
@@ -2091,13 +2094,6 @@ export class MockErpRepository implements IErpRepository {
       mockTitulos
         .filter(t => t.tipo === 'P' && t.ativo && !t.aguardandoValor && t.dataCompetencia >= orcamento.dataInicio && t.dataCompetencia <= orcamento.dataFim)
         .forEach(t => {
-          const pcFolha = mockPlanoContas.find(pc => pc.id === t.planoContaId);
-          let pcPaiNivel2 = pcFolha ? mockPlanoContas.find(pc => pc.id === pcFolha.parentId) : null;
-          if (pcPaiNivel2 && pcPaiNivel2.nivel > 2) {
-            pcPaiNivel2 = mockPlanoContas.find(pc => pc.id === pcPaiNivel2?.parentId);
-          }
-          if (!pcPaiNivel2) pcPaiNivel2 = pcFolha;
-
           t.parcelas?.forEach(p => {
             if (!p.ativo) return;
             const movs = mockMovimentos.filter(m => m.parcelaId === p.id && !m.estornado);
@@ -2106,22 +2102,10 @@ export class MockErpRepository implements IErpRepository {
 
             if (saldoParcelaCentavos <= 0) return;
 
-            // Matching direto por item ou fallback por unidade/plano
-            const r = p.rateios?.find(rat => {
-              if (rat.orcamentoItemId && item.id) {
-                return rat.orcamentoItemId === item.id;
-              }
-              if (item.centroCustoId && rat.centroCustoId === item.centroCustoId) {
-                return true;
-              }
-              if (!item.centroCustoId && centroCustoTreeIds.includes(rat.centroCustoId)) {
-                return pcPaiNivel2 ? (pcPaiNivel2.id === pcGrupoId || pcPaiNivel2.codigo === pcCodigo) : false;
-              }
-              return false;
-            });
-
-            if (r) {
-              const valorRateadoCentavos = Math.round(saldoParcelaCentavos * (r.percentual / 100));
+            // Uma parcela pode ser rateada entre dois itens do mesmo orçamento —
+            // por isso somamos todos os rateios que casam, não só o primeiro.
+            for (const { percentual } of escolherRateios(p.rateios)) {
+              const valorRateadoCentavos = Math.round(saldoParcelaCentavos * (percentual / 100));
               comprometidoCentavos += valorRateadoCentavos;
 
               const pessoa = mockPessoas.find(pe => pe.id === t.pessoaId);
@@ -2136,7 +2120,7 @@ export class MockErpRepository implements IErpRepository {
                 valorTotalParcelaCentavos: p.valorCentavos,
                 valorRateadoCentavos,
                 saldoParcelaCentavos,
-                percentualRateio: r.percentual
+                percentualRateio: percentual
               });
             }
           });
@@ -2158,28 +2142,8 @@ export class MockErpRepository implements IErpRepository {
           }
           if (!parentTitulo || parentTitulo.tipo !== 'P' || !parentParcela) return;
 
-          const pcFolha = mockPlanoContas.find(pc => pc.id === parentTitulo.planoContaId);
-          let pcPaiNivel2 = pcFolha ? mockPlanoContas.find(pc => pc.id === pcFolha.parentId) : null;
-          if (pcPaiNivel2 && pcPaiNivel2.nivel > 2) {
-            pcPaiNivel2 = mockPlanoContas.find(pc => pc.id === pcPaiNivel2?.parentId);
-          }
-          if (!pcPaiNivel2) pcPaiNivel2 = pcFolha;
-
-          const r = parentParcela.rateios?.find(rat => {
-            if (rat.orcamentoItemId && item.id) {
-              return rat.orcamentoItemId === item.id;
-            }
-            if (item.centroCustoId && rat.centroCustoId === item.centroCustoId) {
-              return true;
-            }
-            if (!item.centroCustoId && centroCustoTreeIds.includes(rat.centroCustoId)) {
-              return pcPaiNivel2 ? (pcPaiNivel2.id === pcGrupoId || pcPaiNivel2.codigo === pcCodigo) : false;
-            }
-            return false;
-          });
-
-          if (r) {
-            const valorRateadoMovimentoCentavos = Math.round(m.valorLiquidoCentavos * (r.percentual / 100));
+          for (const { percentual } of escolherRateios(parentParcela.rateios)) {
+            const valorRateadoMovimentoCentavos = Math.round(m.valorLiquidoCentavos * (percentual / 100));
             realizadoCentavos += valorRateadoMovimentoCentavos;
 
             const pessoa = mockPessoas.find(pe => pe.id === parentTitulo.pessoaId);
@@ -2193,10 +2157,25 @@ export class MockErpRepository implements IErpRepository {
               formaPagamento: m.formaPagamento,
               valorPagoMovimentoCentavos: m.valorLiquidoCentavos,
               valorRateadoMovimentoCentavos,
-              percentualRateio: r.percentual
+              percentualRateio: percentual
             });
           }
         });
+
+      return { comprometidoCentavos, realizadoCentavos, comprometidoTitulos, realizadoMovimentos };
+    };
+
+    for (const item of orcamento.itens) {
+      const pcGrupoId = item.planoContaId || item.planoContaNivel2Id || '';
+      const pcCodigo = item.planoContaCodigo || item.planoContaNivel2Codigo || '';
+      const pcNome = item.planoContaNome || item.planoContaNivel2Nome || '';
+      const orcadoCentavos = item.valorTotalCentavos;
+      totalOrcadoCentavos += orcadoCentavos;
+
+      const unidade = item.centroCustoId ? mockCentrosCusto.find(c => c.id === item.centroCustoId) : null;
+
+      const { comprometidoCentavos, realizadoCentavos, comprometidoTitulos, realizadoMovimentos } =
+        coletarConsumo((rateios) => rateiosDoItem(rateios, item.id));
 
       totalComprometidoCentavos += comprometidoCentavos;
       totalRealizadoCentavos += realizadoCentavos;
@@ -2242,6 +2221,14 @@ export class MockErpRepository implements IErpRepository {
         variacaoPercentual
       });
     }
+
+    /*
+     * Lançado no centro de custo, mas sem item de orçamento apontado. Fica de
+     * fora dos totais: como o centro de custo pode ter mais de um orçamento,
+     * atribuir esse valor a um deles seria escolher no chute — e era isso que
+     * fazia o mesmo dinheiro aparecer consumido nos dois.
+     */
+    const semItemOrcamento = coletarConsumo((rateios) => rateiosSemItem(rateios, centroCustoTreeIds));
 
     const totalSaldoCentavos = totalOrcadoCentavos - totalComprometidoCentavos - totalRealizadoCentavos;
     const totalConsumido = totalComprometidoCentavos + totalRealizadoCentavos;
@@ -2346,6 +2333,7 @@ export class MockErpRepository implements IErpRepository {
       variacaoV1TotalCentavos,
       variacaoV1TotalPercentual,
       itensExecucao,
+      semItemOrcamento,
       curvaS
     };
   }

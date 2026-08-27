@@ -1,6 +1,7 @@
 import { supabase, isSupabaseConfigured, supabaseProjectRef } from '@/lib/supabase/client';
 import { IErpRepository, TituloInput, FiltroParcelas } from '../repository.interface';
 import { MockErpRepository } from '../mock/mock.repository';
+import { rateiosDoItem, rateiosSemItem, RateioCasado } from '../orcamento/casamento-rateio';
 import {
   Pessoa,
   PlanoConta,
@@ -2432,15 +2433,15 @@ export class SupabaseErpRepository implements IErpRepository {
     let totalComprometidoCentavos = 0;
     let totalRealizadoCentavos = 0;
 
-    for (const item of orcamento.itens) {
-      const pcGrupoId = item.planoContaId || item.planoContaNivel2Id || '';
-      const pcCodigo = item.planoContaCodigo || item.planoContaNivel2Codigo || '';
-      const pcNome = item.planoContaNome || item.planoContaNivel2Nome || '';
-      const orcadoCentavos = item.valorTotalCentavos || 0;
-      totalOrcadoCentavos += orcadoCentavos;
-
-      const unidade = item.centroCustoId ? centros.find(c => c.id === item.centroCustoId) : null;
-
+    /**
+     * Varre títulos e movimentos somando o que os rateios escolhidos consomem.
+     *
+     * `escolherRateios` é a única coisa que muda entre um item de orçamento e o
+     * bloco "sem item de orçamento": o resto da conta — saldo da parcela,
+     * percentual do rateio, montagem das listas de detalhe — é idêntico, e
+     * estava duplicado entre comprometido e realizado.
+     */
+    const coletarConsumo = (escolherRateios: (rateios: any[]) => RateioCasado<any>[]) => {
       const comprometidoTitulos: ComprometidoTituloItem[] = [];
       const realizadoMovimentos: RealizadoMovimentoItem[] = [];
 
@@ -2458,23 +2459,10 @@ export class SupabaseErpRepository implements IErpRepository {
 
           if (saldoParcelaCentavos <= 0) continue;
 
-          const rateios = p.titulo_rateio || [];
-          const r = rateios.find((rat: any) => {
-            if (rat.orcamento_item_id && item.id) {
-              return rat.orcamento_item_id === item.id;
-            }
-            if (item.centroCustoId && rat.centro_custo_id === item.centroCustoId) {
-              return true;
-            }
-            if (!item.centroCustoId && centroCustoTreeIds.includes(rat.centro_custo_id)) {
-              return true;
-            }
-            return false;
-          });
-
-          if (r) {
-            const pct = Number(r.percentual) || 100;
-            const valorRateadoCentavos = Math.round(saldoParcelaCentavos * (pct / 100));
+          // Uma parcela pode ser rateada entre dois itens do mesmo orçamento —
+          // por isso somamos todos os rateios que casam, não só o primeiro.
+          for (const { percentual } of escolherRateios(p.titulo_rateio || [])) {
+            const valorRateadoCentavos = Math.round(saldoParcelaCentavos * (percentual / 100));
             comprometidoCentavos += valorRateadoCentavos;
 
             comprometidoTitulos.push({
@@ -2488,7 +2476,7 @@ export class SupabaseErpRepository implements IErpRepository {
               valorTotalParcelaCentavos: pValorCentavos,
               valorRateadoCentavos,
               saldoParcelaCentavos,
-              percentualRateio: pct
+              percentualRateio: percentual
             });
           }
         }
@@ -2501,24 +2489,9 @@ export class SupabaseErpRepository implements IErpRepository {
           const p = (t.titulo_parcela || []).find((par: any) => par.id === m.parcela_id);
           if (!p) continue;
 
-          const rateios = p.titulo_rateio || [];
-          const r = rateios.find((rat: any) => {
-            if (rat.orcamento_item_id && item.id) {
-              return rat.orcamento_item_id === item.id;
-            }
-            if (item.centroCustoId && rat.centro_custo_id === item.centroCustoId) {
-              return true;
-            }
-            if (!item.centroCustoId && centroCustoTreeIds.includes(rat.centro_custo_id)) {
-              return true;
-            }
-            return false;
-          });
-
-          if (r) {
-            const pct = Number(r.percentual) || 100;
+          for (const { percentual } of escolherRateios(p.titulo_rateio || [])) {
             const movValorCentavos = Math.round(Number(m.valor_liquido || m.valor_pago) * 100);
-            const valorRateadoMovimentoCentavos = Math.round(movValorCentavos * (pct / 100));
+            const valorRateadoMovimentoCentavos = Math.round(movValorCentavos * (percentual / 100));
             realizadoCentavos += valorRateadoMovimentoCentavos;
 
             realizadoMovimentos.push({
@@ -2531,11 +2504,26 @@ export class SupabaseErpRepository implements IErpRepository {
               formaPagamento: m.forma_pagamento,
               valorPagoMovimentoCentavos: movValorCentavos,
               valorRateadoMovimentoCentavos,
-              percentualRateio: pct
+              percentualRateio: percentual
             });
           }
         }
       }
+
+      return { comprometidoCentavos, realizadoCentavos, comprometidoTitulos, realizadoMovimentos };
+    };
+
+    for (const item of orcamento.itens) {
+      const pcGrupoId = item.planoContaId || item.planoContaNivel2Id || '';
+      const pcCodigo = item.planoContaCodigo || item.planoContaNivel2Codigo || '';
+      const pcNome = item.planoContaNome || item.planoContaNivel2Nome || '';
+      const orcadoCentavos = item.valorTotalCentavos || 0;
+      totalOrcadoCentavos += orcadoCentavos;
+
+      const unidade = item.centroCustoId ? centros.find(c => c.id === item.centroCustoId) : null;
+
+      const { comprometidoCentavos, realizadoCentavos, comprometidoTitulos, realizadoMovimentos } =
+        coletarConsumo((rateios) => rateiosDoItem(rateios, item.id));
 
       totalComprometidoCentavos += comprometidoCentavos;
       totalRealizadoCentavos += realizadoCentavos;
@@ -2568,6 +2556,16 @@ export class SupabaseErpRepository implements IErpRepository {
       });
     }
 
+    /*
+     * Lançado no centro de custo, mas sem item de orçamento apontado.
+     *
+     * Fica de fora dos totais de propósito: como o centro de custo pode ter mais
+     * de um orçamento, atribuir esse valor a um deles seria escolher no chute —
+     * e era exatamente isso que fazia o mesmo dinheiro aparecer consumido nos
+     * dois. Reportado à parte para não sumir da tela.
+     */
+    const semItemOrcamento = coletarConsumo((rateios) => rateiosSemItem(rateios, centroCustoTreeIds));
+
     const totalSaldoCentavos = totalOrcadoCentavos - totalComprometidoCentavos - totalRealizadoCentavos;
     const totalConsumido = totalComprometidoCentavos + totalRealizadoCentavos;
     const totalPercentualConsumido = totalOrcadoCentavos > 0 ? (totalConsumido / totalOrcadoCentavos) * 100 : 0;
@@ -2594,6 +2592,7 @@ export class SupabaseErpRepository implements IErpRepository {
       fraseStatusCurvaS: isEstouradoTotal ? 'Consumo acima do orçamento previsto' : 'Dentro do limite orçado',
       curvaS: [],
       itensExecucao,
+      semItemOrcamento,
       temLinhaBaseV1: false,
       totalOrcadoV1Centavos: 0,
       variacaoV1TotalCentavos: 0,

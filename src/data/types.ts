@@ -689,6 +689,24 @@ export interface OrcamentoExecucaoItemView {
   variacaoPercentual?: number;
 }
 
+/**
+ * Lançamentos que caíram no centro de custo do orçamento mas não apontam item
+ * de orçamento nenhum.
+ *
+ * Existe porque um centro de custo pode ter MAIS DE UM orçamento (obras
+ * paralelas, não revisões). Antes, rateio sem item casava por centro de custo e
+ * era somado como consumo em todos os orçamentos do CC ao mesmo tempo — o mesmo
+ * dinheiro contado duas vezes. Agora o consumo é exclusivamente por
+ * `orcamentoItemId`, e o que não aponta item vem para cá: não consome nenhum
+ * orçamento, mas continua visível para poder ser classificado.
+ */
+export interface OrcamentoSemItemView {
+  comprometidoCentavos: number;
+  realizadoCentavos: number;
+  comprometidoTitulos: ComprometidoTituloItem[];
+  realizadoMovimentos: RealizadoMovimentoItem[];
+}
+
 export interface OrcamentoCurvaSPonto {
   mesAno: string; // "2026-07"
   rotuloMes: string; // "07/26"
@@ -726,6 +744,12 @@ export interface OrcamentoExecucaoView {
   variacaoV1TotalCentavos?: number;
   variacaoV1TotalPercentual?: number;
   itensExecucao: OrcamentoExecucaoItemView[];
+  /**
+   * Lançamentos no centro de custo sem item de orçamento apontado. Fica FORA dos
+   * totais acima de propósito: eles não consomem orçamento, e somá-los quebraria
+   * `saldo = orçado − comprometido − realizado`.
+   */
+  semItemOrcamento: OrcamentoSemItemView;
   curvaS: OrcamentoCurvaSPonto[];
 }
 

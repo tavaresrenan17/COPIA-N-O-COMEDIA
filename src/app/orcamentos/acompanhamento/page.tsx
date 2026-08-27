@@ -418,8 +418,8 @@ function AcompanhamentoOrcamentarioPage() {
                                           </tr>
                                         </thead>
                                         <tbody className="divide-y divide-black/5">
-                                          {it.comprometidoTitulos.map(t => (
-                                            <tr key={t.parcelaId}>
+                                          {it.comprometidoTitulos.map((t, i) => (
+                                            <tr key={`${t.parcelaId}-${i}`}>
                                               <td className="p-1">
                                                 <span className="font-bold text-ink-primary block">{t.pessoaNome}</span>
                                                 <span className="text-[10px] text-ink-muted">Doc: {t.numeroDocumento || '-'}</span>
@@ -458,8 +458,8 @@ function AcompanhamentoOrcamentarioPage() {
                                           </tr>
                                         </thead>
                                         <tbody className="divide-y divide-black/5">
-                                          {it.realizadoMovimentos.map(m => (
-                                            <tr key={m.movimentoId}>
+                                          {it.realizadoMovimentos.map((m, i) => (
+                                            <tr key={`${m.movimentoId}-${i}`}>
                                               <td className="p-1">
                                                 <span className="font-bold text-ink-primary block">{m.pessoaNome}</span>
                                                 <span className="text-[10px] text-ink-muted">Doc: {m.numeroDocumento || '-'}</span>
