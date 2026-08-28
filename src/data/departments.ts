@@ -61,13 +61,13 @@ export interface DepartmentConfig {
   inativo?: boolean;
 
   /**
-   * Quando true, a sidebar mostra apenas um botão de volta ao hub em vez de
-   * repetir a lista de módulos — a navegação acontece pelos cards da tela.
-   * Usado onde a página inicial do departamento já é um índice completo, e
-   * listar tudo dos dois lados era pura duplicação.
+   * Rótulo do hub do departamento no menu e no título da tela.
+   *
+   * Existia junto de um `navegacaoPorHub`, que mandava a sidebar mostrar só o
+   * botão do hub em vez da lista de módulos. A sidebar passou a listar tudo em
+   * seções recolhíveis, ninguém mais lia a flag, e config que nada lê é
+   * armadilha — foi removida. Este rótulo continua em uso.
    */
-  navegacaoPorHub?: boolean;
-  /** Rótulo do botão único da sidebar quando `navegacaoPorHub` está ativo. */
   hubLabel?: string;
 
   /**
@@ -340,7 +340,6 @@ export const DEPARTMENTS: Record<string, DepartmentConfig> = {
     themeColor: 'bg-indigo-600',
     accentBg: 'from-indigo-900/40 to-slate-900/40',
     baseHref: '/cadastros',
-    navegacaoPorHub: true,
     hubLabel: 'Hub de Cadastros',
     ocultoNoHub: true,
     modules: [

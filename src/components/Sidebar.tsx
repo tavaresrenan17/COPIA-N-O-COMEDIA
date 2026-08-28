@@ -1,20 +1,12 @@
 'use client';
 
+import React, { useMemo } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import {
-  Home,
-  Building2,
-  ClipboardList,
-  BarChart3,
-  ArrowLeft,
-  PanelLeftClose,
-  PanelLeftOpen,
-} from 'lucide-react';
+import { Home, ArrowLeft, ChevronDown, Star, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { DEPARTMENTS, DepartmentConfig } from '@/data/departments';
 import { useSidebar } from '@/context/SidebarContext';
-import { paginaAnterior } from '@/lib/navegacao';
+import { paginaAnterior, secoesNavegacao, secaoDaRota, itensVisiveis } from '@/lib/navegacao';
 
 interface MenuItem {
   href: string;
@@ -24,14 +16,8 @@ interface MenuItem {
 
 const ITEM_HOME: MenuItem = { href: '/', label: 'Home', Icon: Home };
 
-const ITENS_GLOBAIS: MenuItem[] = [
-  { href: '/cadastros', label: 'Cadastros', Icon: ClipboardList },
-  { href: '/departamentos', label: 'Departamentos', Icon: Building2 },
-  { href: '/relatorios', label: 'Relatórios', Icon: BarChart3 },
-];
-
 /** Rótulo de seção — um único estilo para todos os grupos da sidebar. */
-function RotuloSecao({ children, isCollapsed }: { children: React.ReactNode; isCollapsed?: boolean }) {
+function RotuloSecao({ children, isCollapsed }: { children?: React.ReactNode; isCollapsed?: boolean }) {
   if (isCollapsed) {
     return <div className="my-2 border-t border-white/10" />;
   }
@@ -43,6 +29,49 @@ function RotuloSecao({ children, isCollapsed }: { children: React.ReactNode; isC
 }
 
 /**
+ * Cabeçalho de seção que abre e fecha.
+ *
+ * Só existe com a sidebar expandida: recolhida (w-20) não há largura para
+ * título nem para contador, e a seção vira uma faixa de ícones separada por
+ * divisor — que é o que o `RotuloSecao` já faz nesse modo.
+ */
+function SecaoRecolhivel({
+  titulo,
+  aberta,
+  quantidade,
+  onAlternar,
+  children,
+}: {
+  titulo: string;
+  aberta: boolean;
+  quantidade: number;
+  onAlternar: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={onAlternar}
+        aria-expanded={aberta}
+        className="flex w-full items-center gap-1.5 px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35 transition-colors hover:text-white/70"
+      >
+        <ChevronDown
+          className={`h-3 w-3 shrink-0 transition-transform duration-200 ${aberta ? '' : '-rotate-90'}`}
+        />
+        <span className="truncate">{titulo}</span>
+        {!aberta && (
+          <span className="ml-auto rounded bg-white/[0.08] px-1.5 py-0.5 text-[9px] tracking-normal text-white/45">
+            {quantidade}
+          </span>
+        )}
+      </button>
+      {aberta && <div className="space-y-0.5">{children}</div>}
+    </div>
+  );
+}
+
+/**
  * Linha de navegação com suporte a modo expandido e modo recolhido (ícone centralizado com tooltip).
  */
 function ItemNav({
@@ -50,40 +79,24 @@ function ItemNav({
   label,
   Icon,
   ativo,
-  inativo,
   isCollapsed,
-}: MenuItem & { ativo: boolean; inativo?: boolean; isCollapsed?: boolean }) {
-  if (inativo) {
-    return (
-      <span
-        aria-disabled="true"
-        title={`${label} (Módulo desativado)`}
-        className={`flex cursor-not-allowed items-center ${
-          isCollapsed ? 'justify-center py-2.5 px-0' : 'gap-3 py-2 pl-3 pr-2 border-l-2 border-transparent'
-        } rounded-lg text-white/25`}
-      >
-        <Icon className="h-[18px] w-[18px] shrink-0" />
-        {!isCollapsed && (
-          <>
-            <span className="truncate text-[13px] font-medium">{label}</span>
-            <span className="ml-auto shrink-0 text-[9px] font-semibold uppercase tracking-wide">
-              Off
-            </span>
-          </>
-        )}
-      </span>
-    );
-  }
+  favorito,
+  onAlternarFavorito,
+}: MenuItem & {
+  ativo: boolean;
+  isCollapsed?: boolean;
+  favorito?: boolean;
+  onAlternarFavorito?: () => void;
+}) {
+  const podeFixar = !!onAlternarFavorito && !isCollapsed;
 
-  return (
+  const link = (
     <Link
       href={href}
       title={isCollapsed ? label : undefined}
       aria-current={ativo ? 'page' : undefined}
       className={`group flex items-center ${
-        isCollapsed
-          ? 'justify-center py-2.5 px-0'
-          : 'gap-3 py-2 pl-3 pr-2 border-l-2'
+        isCollapsed ? 'justify-center py-2.5 px-0' : `gap-3 py-2 pl-3 ${podeFixar ? 'pr-9' : 'pr-2'} border-l-2`
       } rounded-lg transition-all ${
         ativo
           ? 'border-brand bg-white/[0.08] text-white font-semibold'
@@ -97,6 +110,31 @@ function ItemNav({
       />
       {!isCollapsed && <span className="truncate text-[13px] font-medium">{label}</span>}
     </Link>
+  );
+
+  if (!podeFixar) return link;
+
+  /*
+   * A estrela é IRMÃ do link, não filha: botão dentro de <a> é HTML inválido e
+   * o clique acabaria navegando junto.
+   */
+  return (
+    <div className="group relative">
+      {link}
+      <button
+        type="button"
+        onClick={() => onAlternarFavorito!()}
+        title={favorito ? `Desafixar ${label}` : `Fixar ${label} no topo`}
+        aria-pressed={favorito}
+        className={`absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 transition-opacity focus-visible:opacity-100 ${
+          favorito
+            ? 'text-amber-300 opacity-100 hover:text-amber-200'
+            : 'text-white/35 opacity-0 hover:text-amber-300 group-hover:opacity-100'
+        }`}
+      >
+        <Star className="h-3.5 w-3.5" fill={favorito ? 'currentColor' : 'none'} />
+      </button>
+    </div>
   );
 }
 
@@ -135,19 +173,47 @@ function BotaoVoltar({ isCollapsed }: { isCollapsed?: boolean }) {
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { isCollapsed, toggleSidebar } = useSidebar();
+  const {
+    isCollapsed,
+    toggleSidebar,
+    secoesFechadas,
+    alternarSecao,
+    favoritos,
+    alternarFavorito,
+    ehFavorito,
+  } = useSidebar();
 
-  const idDepartamentoAtivo = Object.keys(DEPARTMENTS).find((chave) => {
-    const dept = DEPARTMENTS[chave];
-    if (pathname.startsWith(dept.baseHref)) return true;
-    if (dept.modules.some((m) => pathname.startsWith(m.href) && m.href !== '/')) return true;
-    if (dept.cadastros.some((c) => pathname.startsWith(c.href) && c.href !== '/')) return true;
-    return false;
-  });
+  const secoes = useMemo(() => secoesNavegacao(), []);
+  const secaoAtual = secaoDaRota(pathname);
 
-  const departamentoAtivo: DepartmentConfig | undefined = idDepartamentoAtivo
-    ? DEPARTMENTS[idDepartamentoAtivo]
-    : undefined;
+  /*
+   * Só UM item fica marcado: sem isso, `/departamentos` acenderia junto com
+   * `/departamentos/financeiro`, porque um prefixa o outro.
+   */
+  const hrefAtivo = useMemo(() => {
+    const candidatos = [ITEM_HOME.href, ...itensVisiveis().map((i) => i.href)];
+    return candidatos
+      .filter((h) => pathname === h || (h !== '/' && pathname.startsWith(`${h}/`)))
+      .sort((a, b) => b.length - a.length)[0];
+  }, [pathname]);
+
+  /*
+   * Seção fechada CONTINUA fechada, inclusive na tela que mora dentro dela.
+   *
+   * Aqui havia uma reabertura automática ao entrar na seção. Ela desfazia a
+   * escolha do usuário e ainda regravava o localStorage: fechar "Cadastros
+   * Base", sair e voltar reabria tudo, e não havia como manter fechada a seção
+   * da tela onde se está. Como seção nasce ABERTA (o que se guarda é o que foi
+   * fechado), "abrir sozinha" já é o padrão — forçar de novo só atropelava
+   * quem tinha decidido o contrário. O contador no cabeçalho mostra quantos
+   * itens estão escondidos, a um clique.
+   */
+
+  /** Favoritos na ordem em que foram fixados; ignora href que não existe mais. */
+  const itensFavoritos = useMemo(() => {
+    const porHref = new Map(itensVisiveis().map((i) => [i.href, i]));
+    return favoritos.map((href) => porHref.get(href)).filter((i): i is NonNullable<typeof i> => !!i);
+  }, [favoritos]);
 
   return (
     <aside
@@ -186,109 +252,75 @@ export function Sidebar() {
 
       {/* ---------- Navegação (rola quando não cabe) ---------- */}
       <nav className="flex-1 space-y-5 overflow-y-auto px-3 pb-4">
-        {departamentoAtivo?.navegacaoPorHub ? (
-          <>
-            <div>
-              <RotuloSecao isCollapsed={isCollapsed}>{departamentoAtivo.name}</RotuloSecao>
-              <ItemNav
-                href={departamentoAtivo.baseHref}
-                label={departamentoAtivo.hubLabel ?? 'Hub'}
-                Icon={departamentoAtivo.Icon}
-                ativo={pathname === departamentoAtivo.baseHref}
-                isCollapsed={isCollapsed}
-              />
-            </div>
+        <div>
+          <RotuloSecao isCollapsed={isCollapsed}>Início</RotuloSecao>
+          <ItemNav
+            {...ITEM_HOME}
+            isCollapsed={isCollapsed}
+            ativo={hrefAtivo === ITEM_HOME.href}
+          />
+        </div>
 
-            <div className="pt-2">
-              <BotaoVoltar isCollapsed={isCollapsed} />
-            </div>
-          </>
-        ) : departamentoAtivo ? (
-          <>
-            <div>
-              <RotuloSecao isCollapsed={isCollapsed}>{departamentoAtivo.name}</RotuloSecao>
-              {departamentoAtivo.modules.slice(0, 1).map((mod) => (
+        {/* Sem favoritos a seção não existe — nada de caixa vazia. */}
+        {itensFavoritos.length > 0 && (
+          <div>
+            <RotuloSecao isCollapsed={isCollapsed}>Favoritos</RotuloSecao>
+            <div className="space-y-0.5">
+              {itensFavoritos.map((item) => (
                 <ItemNav
-                  key={mod.href}
-                  href={mod.href}
-                  label={mod.label}
-                  Icon={mod.Icon}
-                  inativo={mod.inativo}
+                  key={`fav-${item.href}`}
+                  href={item.href}
+                  label={item.label}
+                  Icon={item.Icon}
                   isCollapsed={isCollapsed}
-                  ativo={pathname === mod.href}
+                  ativo={hrefAtivo === item.href}
+                  favorito
+                  onAlternarFavorito={() => alternarFavorito(item.href)}
                 />
               ))}
             </div>
-
-            <div>
-              <RotuloSecao isCollapsed={isCollapsed}>Módulos</RotuloSecao>
-              <div className="space-y-0.5">
-                {departamentoAtivo.modules.slice(1).map((mod) => (
-                  <ItemNav
-                    key={mod.href}
-                    href={mod.href}
-                    label={mod.label}
-                    Icon={mod.Icon}
-                    inativo={mod.inativo}
-                    isCollapsed={isCollapsed}
-                    ativo={
-                      pathname === mod.href ||
-                      (mod.href !== departamentoAtivo.baseHref && pathname.startsWith(mod.href))
-                    }
-                  />
-                ))}
-              </div>
-            </div>
-
-            {departamentoAtivo.cadastros.length > 0 && (
-              <div>
-                <RotuloSecao isCollapsed={isCollapsed}>Cadastros</RotuloSecao>
-                <div className="space-y-0.5">
-                  {departamentoAtivo.cadastros.map((cad) => (
-                    <ItemNav
-                      key={cad.href}
-                      href={cad.href}
-                      label={cad.label}
-                      Icon={cad.Icon}
-                      isCollapsed={isCollapsed}
-                      ativo={pathname.startsWith(cad.href)}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="pt-2">
-              <BotaoVoltar isCollapsed={isCollapsed} />
-            </div>
-          </>
-        ) : (
-          <div className="space-y-4">
-            <div>
-              <RotuloSecao isCollapsed={isCollapsed}>Início</RotuloSecao>
-              <ItemNav
-                key={ITEM_HOME.href}
-                {...ITEM_HOME}
-                isCollapsed={isCollapsed}
-                ativo={pathname === '/'}
-              />
-            </div>
-
-            <div>
-              <RotuloSecao isCollapsed={isCollapsed}>Navegação</RotuloSecao>
-              <div className="space-y-0.5">
-                {ITENS_GLOBAIS.map((item) => (
-                  <ItemNav
-                    key={item.href}
-                    {...item}
-                    isCollapsed={isCollapsed}
-                    ativo={pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href))}
-                  />
-                ))}
-              </div>
-            </div>
           </div>
         )}
+
+        {secoes.map((secao) => {
+          const itens = secao.itens.map((item) => (
+            <ItemNav
+              key={item.href}
+              href={item.href}
+              label={item.label}
+              Icon={item.Icon}
+              isCollapsed={isCollapsed}
+              ativo={hrefAtivo === item.href}
+              favorito={ehFavorito(item.href)}
+              onAlternarFavorito={() => alternarFavorito(item.href)}
+            />
+          ));
+
+          if (isCollapsed) {
+            return (
+              <div key={secao.id}>
+                <RotuloSecao isCollapsed />
+                <div className="space-y-0.5">{itens}</div>
+              </div>
+            );
+          }
+
+          return (
+            <SecaoRecolhivel
+              key={secao.id}
+              titulo={secao.titulo}
+              aberta={!secoesFechadas.includes(secao.id)}
+              quantidade={secao.itens.length}
+              onAlternar={() => alternarSecao(secao.id)}
+            >
+              {itens}
+            </SecaoRecolhivel>
+          );
+        })}
+
+        <div className="pt-2">
+          <BotaoVoltar isCollapsed={isCollapsed} />
+        </div>
       </nav>
 
       {/* ---------- Rodapé fixo ---------- */}

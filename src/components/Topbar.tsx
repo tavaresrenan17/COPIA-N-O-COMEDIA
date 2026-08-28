@@ -4,9 +4,9 @@ import { useEffect } from 'react';
 import Link from 'next/link';
 import { Building2, LogOut, ShieldCheck, PanelLeft } from 'lucide-react';
 import { usePathname } from 'next/navigation';
-import { DEPARTMENTS } from '@/data/departments';
 import { useAuth } from '@/context/AuthContext';
 import { useSidebar } from '@/context/SidebarContext';
+import { tituloDaRota, departamentoAtivo } from '@/lib/navegacao';
 
 export function Topbar() {
   const pathname = usePathname();
@@ -24,67 +24,9 @@ export function Topbar() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [toggleSidebar]);
 
-  const activeDepartmentId = Object.keys(DEPARTMENTS).find((deptKey) => {
-    const dept = DEPARTMENTS[deptKey];
-    if (pathname.startsWith(dept.baseHref)) return true;
-    if (dept.modules.some((m) => pathname.startsWith(m.href) && m.href !== '/')) return true;
-    if (dept.cadastros.some((c) => pathname.startsWith(c.href) && c.href !== '/')) return true;
-    return false;
-  });
+  const activeDepartment = departamentoAtivo(pathname);
 
-  const activeDepartment = activeDepartmentId ? DEPARTMENTS[activeDepartmentId] : undefined;
-
-  const titleMap: Record<string, string> = {
-    '/': '',
-    '/departamentos': 'Hub de Departamentos',
-    '/cadastros': 'Bases de Cadastros',
-    '/relatorios': 'Relatórios Executivos',
-    '/orcamentos': 'Orçamento de Obra',
-    '/contas-pagar': 'Contas a Pagar',
-    '/contas-receber': 'Contas a Receber',
-    '/fluxo-caixa': 'Fluxo de Caixa',
-    '/recorrencias': 'Lançamentos Recorrentes',
-    '/conciliacao': 'Conciliação Bancária',
-    '/clientes': 'Cadastro de Clientes',
-    '/fornecedores': 'Cadastro de Fornecedores',
-    '/centro-custos': 'Centro de Custos',
-    '/plano-contas': 'Plano Financeiro',
-    '/contas-bancarias': 'Contas Bancárias',
-    '/usuarios': 'Gestão de Usuários e Permissões',
-    '/departamentos/financeiro': 'Visão Geral do Financeiro',
-    '/departamentos/rh': 'Visão Geral do RH',
-    '/departamentos/rh/colaboradores': 'Quadro de Colaboradores',
-    '/departamentos/rh/folha': 'Folha de Pagamento',
-    '/departamentos/rh/ferias': 'Férias & Registro de Ponto',
-    '/departamentos/rh/beneficios': 'Gestão de Benefícios',
-    '/departamentos/juridico': 'Visão Geral do Jurídico',
-    '/departamentos/juridico/contratos': 'Gestão de Contratos',
-    '/departamentos/juridico/processos': 'Acompanhamento Processual',
-    '/departamentos/juridico/compliance': 'Compliance & Certidões CND',
-    '/departamentos/fiscal': 'Visão Geral do Fiscal',
-    '/departamentos/fiscal/notas': 'Notas Fiscais (NF-e)',
-    '/departamentos/fiscal/apuracao': 'Apuração Tributária',
-    '/departamentos/fiscal/guias': 'Guias de Recolhimento',
-    '/departamentos/fiscal/contabilidade': 'Escrituração Contábil',
-    '/departamentos/comercial': 'Visão Geral do Comercial',
-    '/departamentos/comercial/pedidos': 'Pedidos de Venda',
-    '/departamentos/comercial/tabela-precos': 'Tabela de Preços',
-    '/pessoas': 'Cadastro de Credores',
-    '/relatorios/executivo': 'Dashboard Executivo',
-    '/orcamentos/acompanhamento': 'Acompanhamento Orçamentário',
-    '/cadastros/grupos-gestao': 'Grupos de Gestão',
-    '/cadastros/linhas-gestao': 'Linhas de Gestão',
-    '/contas-pagar/cadastro': 'Novo Título a Pagar',
-    '/contas-receber/cadastro': 'Novo Título a Receber',
-  };
-
-  const title =
-    titleMap[pathname] ??
-    Object.keys(titleMap)
-      .filter((rota) => rota !== '/' && pathname.startsWith(`${rota}/`))
-      .sort((a, b) => b.length - a.length)
-      .map((rota) => titleMap[rota])[0] ??
-    'ERP MVP';
+  const title = tituloDaRota(pathname);
 
   useEffect(() => {
     document.title = title ? `${title} — MVP` : 'MVP Sistema ERP';

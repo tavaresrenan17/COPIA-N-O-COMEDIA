@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { Sidebar } from '@/components/Sidebar';
 import { Topbar } from '@/components/Topbar';
+import { PaletaComandos } from '@/components/PaletaComandos';
 import { AppProviders } from '@/components/ui/AppProviders';
 
 export const metadata: Metadata = {
@@ -27,6 +28,9 @@ export default function RootLayout({
       <body className="flex h-screen overflow-hidden bg-canvas antialiased">
         {/* Toast + diálogo de confirmação disponíveis em todas as telas */}
         <AppProviders>
+          {/* Busca de telas por Ctrl+K, disponivel em qualquer rota */}
+          <PaletaComandos />
+
           {/* Sidebar fixa escura */}
           <Sidebar />
 
