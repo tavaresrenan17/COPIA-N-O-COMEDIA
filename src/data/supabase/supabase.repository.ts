@@ -2,6 +2,7 @@ import { supabase, isSupabaseConfigured, supabaseProjectRef } from '@/lib/supaba
 import { IErpRepository, TituloInput, FiltroParcelas } from '../repository.interface';
 import { MockErpRepository } from '../mock/mock.repository';
 import { rateiosDoItem, rateiosSemItem, RateioCasado } from '../orcamento/casamento-rateio';
+import { mensagemRecusaExclusao } from '../orcamento/exclusao-orcamento';
 import {
   Pessoa,
   PlanoConta,
@@ -36,6 +37,7 @@ import {
   RealizadoMovimentoItem,
   StatusOrcamentoEmpreendimento,
   Orcamento,
+  ExclusaoOrcamentoPrevia,
   Recorrencia,
   StatusRecorrencia,
   ProximaOcorrenciaPrevia,
@@ -2308,6 +2310,129 @@ export class SupabaseErpRepository implements IErpRepository {
     const rec = await this.getOrcamentoById(id);
     if (!rec) throw new Error('Orçamento atualizado, mas não foi possível relê-lo.');
     return rec;
+  }
+
+  async previaExclusaoOrcamento(id: string): Promise<ExclusaoOrcamentoPrevia> {
+    if (!this.client) return this.fallbackMock.previaExclusaoOrcamento(id);
+
+    const orc = await this.getOrcamentoById(id);
+    if (!orc) throw new Error('Orçamento não encontrado.');
+
+    const base: ExclusaoOrcamentoPrevia = {
+      podeExcluir: true,
+      orcamentoNome: orc.nome,
+      itensCount: orc.itens.length,
+      valorTotalCentavos: orc.valorTotalCentavos,
+      bloqueios: [],
+    };
+
+    /*
+     * Toda consulta daqui para baixo é uma TRAVA, então falha de leitura não
+     * pode virar "nada bloqueia": ignorar o `error` faria uma query quebrada
+     * devolver `podeExcluir: true`, a tela prometeria "nada de financeiro é
+     * afetado" e o usuário apagaria a planilha achando que estava livre. Na
+     * dúvida, esta função recusa.
+     */
+
+    /*
+     * `orcamento_base_id` é auto-referência sem ON DELETE (migration 04): apagar
+     * a base de uma revisão é recusado pelo Postgres. Sem esta checagem a prévia
+     * diria que dá, e o erro cru de constraint apareceria depois — que é
+     * exatamente o que esta função existe para evitar.
+     */
+    const { data: revisoes, error: revErro } = await this.client
+      .from('orcamento')
+      .select('id, nome, versao')
+      .eq('orcamento_base_id', id);
+    if (revErro) {
+      throw new Error(`Não foi possível verificar revisões deste orçamento: ${revErro.message}`);
+    }
+    if (revisoes && revisoes.length > 0) {
+      const nomes = (revisoes as any[]).map((r) => `"${r.nome}" (v${r.versao})`).join(', ');
+      base.podeExcluir = false;
+      base.revisoesDependentes = nomes;
+      return base;
+    }
+
+    if (orc.itens.length === 0) return base;
+
+    /*
+     * Sem a migration 09 a coluna não existe, e a query abaixo falharia. Nenhum
+     * rateio pode apontar para item de orçamento nesse banco, então não há o que
+     * travar. Mesmo guarda que o resto do arquivo usa para esta coluna.
+     */
+    if (!(await this.temColuna('titulo_rateio', 'orcamento_item_id'))) return base;
+
+    const itemPorId = new Map(orc.itens.map((i) => [i.id, i]));
+    const { data: rateios, error: ratErro } = await this.client
+      .from('titulo_rateio')
+      .select('id, parcela_id, orcamento_item_id, valor')
+      .in('orcamento_item_id', [...itemPorId.keys()]);
+    if (ratErro) {
+      throw new Error(`Não foi possível verificar as apropriações deste orçamento: ${ratErro.message}`);
+    }
+
+    if (!rateios || rateios.length === 0) return base;
+
+    // Rateio guarda a parcela, não o título: dois saltos até o código do título.
+    const parcelaIds = [...new Set((rateios as any[]).map((r) => r.parcela_id).filter(Boolean))];
+    const { data: parcelas, error: parErro } = await this.client
+      .from('titulo_parcela')
+      .select('id, titulo_id')
+      .in('id', parcelaIds);
+    if (parErro) {
+      throw new Error(`Não foi possível identificar os títulos que usam este orçamento: ${parErro.message}`);
+    }
+
+    const tituloPorParcela = new Map((parcelas ?? []).map((p: any) => [p.id, p.titulo_id]));
+    const tituloIds = [...new Set([...tituloPorParcela.values()].filter(Boolean))];
+    const { data: titulos, error: titErro } = await this.client
+      .from('titulo')
+      .select('id, codigo, descricao')
+      .in('id', tituloIds);
+    if (titErro) {
+      throw new Error(`Não foi possível identificar os títulos que usam este orçamento: ${titErro.message}`);
+    }
+
+    const tituloPorId = new Map((titulos ?? []).map((t: any) => [t.id, t]));
+
+    base.podeExcluir = false;
+    base.bloqueios = (rateios as any[]).map((r) => {
+      const tituloId = tituloPorParcela.get(r.parcela_id);
+      const titulo = tituloId ? tituloPorId.get(tituloId) : undefined;
+      const item = itemPorId.get(r.orcamento_item_id);
+      return {
+        tituloId: tituloId ?? '',
+        tituloCodigo: titulo?.codigo ?? '(sem código)',
+        tituloDescricao: titulo?.descricao ?? undefined,
+        itemDescricao: item?.descricao || item?.planoContaNome || '(item sem descrição)',
+        valorRateadoCentavos: Math.round(Number(r.valor ?? 0) * 100),
+      };
+    });
+    return base;
+  }
+
+  async deleteOrcamento(id: string): Promise<boolean> {
+    if (!this.client) return this.fallbackMock.deleteOrcamento(id);
+
+    /*
+     * Confere de novo aqui, e não só na tela: entre abrir a confirmação e clicar
+     * em excluir, alguém pode ter apropriado um título nesta planilha. O banco
+     * também recusaria (ON DELETE RESTRICT), mas com uma mensagem de constraint
+     * que não diz qual título travou.
+     */
+    const previa = await this.previaExclusaoOrcamento(id);
+    if (!previa.podeExcluir) throw new Error(mensagemRecusaExclusao(previa));
+
+    // Os ids têm de ser lidos ANTES: depois do delete não há mais o que ler.
+    const itensIds = ((await this.getOrcamentoById(id))?.itens ?? []).map((i) => i.id);
+
+    const { error } = await this.client.from('orcamento').delete().eq('id', id);
+    this.cache.invalidar('orcamento');   // só depois da escrita confirmada
+    if (error) throw new Error(`Não foi possível excluir o orçamento: ${error.message}`);
+
+    for (const itemId of itensIds) this.planoContaDeItem.delete(itemId);
+    return true;
   }
 
   async aprovarOrcamento(id: string, usuario?: string): Promise<Orcamento> {

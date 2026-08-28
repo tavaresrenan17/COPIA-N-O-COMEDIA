@@ -1,5 +1,6 @@
 import { IErpRepository, FiltroParcelas, TituloInput } from '../repository.interface';
 import { rateiosDoItem, rateiosSemItem, RateioCasado } from '../orcamento/casamento-rateio';
+import { mensagemRecusaExclusao } from '../orcamento/exclusao-orcamento';
 import { 
   Pessoa, 
   PlanoConta, 
@@ -13,6 +14,8 @@ import {
   Titulo,
   TituloParcela,
   TituloRateio,
+  ExclusaoOrcamentoPrevia,
+  TituloBloqueandoExclusao,
   Movimento,
   ParcelaView,
   TipoTitulo,
@@ -91,6 +94,19 @@ let mockRecorrenciaOcorrencias: RecorrenciaOcorrencia[] = [];
 let mockRecorrenciaReajustes: RecorrenciaReajuste[] = [];
 let mockRecorrenciaLogs: LogExecucaoFila[] = [];
 let mockOrcamentosEmpreendimento: Orcamento[] = [];
+
+/**
+ * Id de orçamento no mock.
+ *
+ * Era `orc-emp-${Date.now()}`, e duas criações no mesmo milissegundo saíam com
+ * o MESMO id — o que acontece o tempo todo, inclusive entre um orçamento e a
+ * revisão criada logo em seguida. A partir daí `find(o => o.id === id)` devolvia
+ * o primeiro da lista em vez do procurado, e como a lista usa `unshift`, o
+ * primeiro é o mais novo: pedir a base devolvia a revisão. O contador remove o
+ * empate sem depender do relógio.
+ */
+let seqIdOrcamento = 0;
+const novoIdOrcamento = () => `orc-emp-${Date.now()}-${++seqIdOrcamento}`;
 
 // Mock Data: Plano de Contas Oficial (Dimensão Contábil Base DRE)
 let mockPlanoContas: PlanoConta[] = [
@@ -1781,7 +1797,7 @@ export class MockErpRepository implements IErpRepository {
       }
     }
 
-    const id = `orc-emp-${Date.now()}`;
+    const id = novoIdOrcamento();
     let valorTotalGeral = 0;
 
     const itensConvertidos: OrcamentoItem[] = data.itens.map((it, idx) => {
@@ -1869,10 +1885,16 @@ export class MockErpRepository implements IErpRepository {
 
     const target = mockOrcamentosEmpreendimento[idx];
 
-    // Regra: Orçamento Aprovado é Congelado
-    if (target.status === 'aprovado') {
-      throw new Error('Este orçamento já está APROVADO e congelado. Não é possível alterar itens. Crie uma revisão para modificar.');
-    }
+    /*
+     * Orçamento aprovado NÃO é recusado aqui.
+     *
+     * O congelamento passou a ser da tela: a planilha aprovada abre travada e só
+     * destrava depois de um aviso explícito ("Editar planilha aprovada"), que é
+     * o que permite corrigir item cadastrado com plano de contas errado sem
+     * gerar uma revisão. O repositório Supabase nunca teve essa recusa — mantê-la
+     * aqui fazia a edição funcionar em produção e falhar no mock, que é
+     * justamente onde o fluxo é validado.
+     */
 
     if (data.nome) {
       target.nome = data.nome;
@@ -1939,6 +1961,61 @@ export class MockErpRepository implements IErpRepository {
     return target;
   }
 
+  async previaExclusaoOrcamento(id: string): Promise<ExclusaoOrcamentoPrevia> {
+    const orc = mockOrcamentosEmpreendimento.find(o => o.id === id);
+    if (!orc) throw new Error('Orçamento não encontrado');
+
+    // Mesma ordem de checagem do repositório Supabase: revisão antes de apropriação.
+    const revisoes = mockOrcamentosEmpreendimento.filter(o => o.orcamentoBaseId === id);
+    if (revisoes.length > 0) {
+      return {
+        podeExcluir: false,
+        orcamentoNome: orc.nome,
+        itensCount: orc.itens.length,
+        valorTotalCentavos: orc.valorTotalCentavos,
+        bloqueios: [],
+        revisoesDependentes: revisoes.map(r => `"${r.nome}" (v${r.versao})`).join(', '),
+      };
+    }
+
+    const itemPorId = new Map(orc.itens.map(i => [i.id, i]));
+    const bloqueios: TituloBloqueandoExclusao[] = [];
+
+    for (const t of mockTitulos) {
+      for (const p of t.parcelas ?? []) {
+        for (const r of p.rateios ?? []) {
+          const item = r.orcamentoItemId ? itemPorId.get(r.orcamentoItemId) : undefined;
+          if (!item) continue;
+          bloqueios.push({
+            tituloId: t.id,
+            tituloCodigo: t.codigo || '(sem código)',
+            tituloDescricao: t.descricao,
+            itemDescricao: item.descricao || item.planoContaNome || '(item sem descrição)',
+            valorRateadoCentavos: r.valorCentavos ?? 0,
+          });
+        }
+      }
+    }
+
+    return {
+      podeExcluir: bloqueios.length === 0,
+      orcamentoNome: orc.nome,
+      itensCount: orc.itens.length,
+      valorTotalCentavos: orc.valorTotalCentavos,
+      bloqueios,
+    };
+  }
+
+  async deleteOrcamento(id: string): Promise<boolean> {
+    const previa = await this.previaExclusaoOrcamento(id);
+    if (!previa.podeExcluir) throw new Error(mensagemRecusaExclusao(previa));
+
+    const idx = mockOrcamentosEmpreendimento.findIndex(o => o.id === id);
+    if (idx === -1) throw new Error('Orçamento não encontrado');
+    mockOrcamentosEmpreendimento.splice(idx, 1);
+    return true;
+  }
+
   async aprovarOrcamento(id: string, usuario = 'Fabrício (Engenharia)'): Promise<Orcamento> {
     const idx = mockOrcamentosEmpreendimento.findIndex(o => o.id === id);
     if (idx === -1) throw new Error('Orçamento não encontrado');
@@ -1975,7 +2052,7 @@ export class MockErpRepository implements IErpRepository {
     }
 
     const proxVersao = base.versao + 1;
-    const newId = `orc-emp-${Date.now()}`;
+    const newId = novoIdOrcamento();
     const baseId = base.versao === 1 ? base.id : (base.orcamentoBaseId || base.id);
 
     const novaRevisao: Orcamento = {

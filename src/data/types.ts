@@ -753,6 +753,37 @@ export interface OrcamentoExecucaoView {
   curvaS: OrcamentoCurvaSPonto[];
 }
 
+/**
+ * Um título que impede a exclusão de um orçamento.
+ *
+ * Excluir a planilha apaga os itens em cascata, e `titulo_rateio.orcamento_item_id`
+ * aponta para eles. O banco recusa (ON DELETE RESTRICT), mas erro de constraint
+ * não diz QUAL título travou — sem isso o usuário fica sem saída.
+ */
+export interface TituloBloqueandoExclusao {
+  tituloId: string;
+  tituloCodigo: string;
+  tituloDescricao?: string;
+  itemDescricao: string;
+  valorRateadoCentavos: number;
+}
+
+/** O que a exclusão de um orçamento vai levar junto — consultado ANTES de excluir. */
+export interface ExclusaoOrcamentoPrevia {
+  podeExcluir: boolean;
+  orcamentoNome: string;
+  itensCount: number;
+  valorTotalCentavos: number;
+  /** Vazio quando `podeExcluir` é true. */
+  bloqueios: TituloBloqueandoExclusao[];
+  /**
+   * Preenchido quando o que trava não é apropriação e sim uma revisão que
+   * aponta para esta planilha como base (`orcamento_base_id`). São bloqueios de
+   * naturezas diferentes e a tela explica cada um do seu jeito.
+   */
+  revisoesDependentes?: string;
+}
+
 export interface DisponibilidadeOrcamentariaResultado {
   hasOrcamentoVigente: boolean;
   orcamentoId?: string;

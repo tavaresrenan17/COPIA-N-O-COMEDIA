@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { 
   erpRepository, 
   CentroCusto, 
   Orcamento, 
   PlanoConta,
-  LinhaGestao 
+  LinhaGestao,
+  ExclusaoOrcamentoPrevia
 } from '@/data';
 import { formatCurrency } from '@/lib/formatters';
 import { OrcamentoSpreadsheetEditor } from '@/components/OrcamentoSpreadsheetEditor';
@@ -30,11 +31,17 @@ import {
   Eye,
   AlertCircle,
   TrendingUp,
-  Table
+  Table,
+  Trash2,
+  Unlock,
+  ShieldAlert
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useToast } from '@/components/ui/ToastProvider';
 
 function OrcamentosPage() {
+  const toast = useToast();
+
   // Navegação por Abas
   const [activeTab, setActiveTab] = useState<'matriz' | 'acompanhamento'>('matriz');
 
@@ -59,6 +66,20 @@ function OrcamentosPage() {
   const [modalNovoOpen, setModalNovoOpen] = useState(false);
   const [modalImportOpen, setModalImportOpen] = useState(false);
   const [modalRevisaoOpen, setModalRevisaoOpen] = useState<Orcamento | null>(null);
+  /*
+   * Orçamento aprovado nasce congelado. Este id é o único que a planilha aceita
+   * editar, e ele só é preenchido depois de o usuário confirmar o aviso — assim
+   * a edição de uma base já aprovada é sempre um ato deliberado, nunca um
+   * clique distraído. Volta a null ao fechar o editor.
+   */
+  const [edicaoLiberadaId, setEdicaoLiberadaId] = useState<string | null>(null);
+  const [modalEdicaoOpen, setModalEdicaoOpen] = useState<Orcamento | null>(null);
+  /** Orçamento em vias de ser excluído, junto com o que a exclusão leva. */
+  const [modalExcluirOpen, setModalExcluirOpen] = useState<{ orc: Orcamento; previa: ExclusaoOrcamentoPrevia } | null>(null);
+  const [excluindo, setExcluindo] = useState(false);
+  /** Sequência das prévias em voo — só a última pode abrir o modal. */
+  const exclusaoReqRef = useRef(0);
+  const [verificandoExclusaoId, setVerificandoExclusaoId] = useState<string | null>(null);
 
   // Form Novo Orçamento
   const [formCcId, setFormCcId] = useState('');
@@ -124,6 +145,75 @@ function OrcamentosPage() {
     if (activeOrcamento?.id === orc.id) {
       const updated = await erpRepository.getOrcamentoById(orc.id);
       if (updated) setActiveOrcamento(updated);
+    }
+  }
+
+  /**
+   * Abre a confirmação de edição de um orçamento aprovado.
+   *
+   * Aprovar congela a planilha de propósito: o acompanhamento compara o
+   * realizado contra ela. Editar continua sendo possível — é o que resolve
+   * item cadastrado com plano de contas errado —, mas passa por um aviso que
+   * diz o que muda, em vez de simplesmente destravar o campo.
+   */
+  function pedirLiberacaoEdicao(orc: Orcamento) {
+    setModalEdicaoOpen(orc);
+  }
+
+  function confirmarLiberacaoEdicao() {
+    if (!modalEdicaoOpen) return;
+    setEdicaoLiberadaId(modalEdicaoOpen.id);
+    setModalEdicaoOpen(null);
+  }
+
+  /** Fecha o editor e volta a trancar o que estava aprovado. */
+  function fecharEditor() {
+    setIsEditing(false);
+    setActiveOrcamento(null);
+    setEdicaoLiberadaId(null);
+  }
+
+  /**
+   * Abre a confirmação de exclusão com a prévia carregada.
+   *
+   * A prévia leva vários round-trips. Sem o contador, clicar na lixeira de duas
+   * planilhas em sequência deixava a resposta mais lenta chegar por último e
+   * abrir o modal da planilha errada — numa tela cujo botão seguinte apaga
+   * dados. Só a última solicitação pode abrir o modal.
+   */
+  async function pedirExclusao(orc: Orcamento) {
+    const requisicao = ++exclusaoReqRef.current;
+    setVerificandoExclusaoId(orc.id);
+    try {
+      const previa = await erpRepository.previaExclusaoOrcamento(orc.id);
+      if (requisicao !== exclusaoReqRef.current) return;   // chegou tarde: descarta
+      setModalExcluirOpen({ orc, previa });
+    } catch (err) {
+      if (requisicao !== exclusaoReqRef.current) return;
+      toast.error('Não foi possível verificar o orçamento', {
+        description: err instanceof Error ? err.message : 'Tente novamente.',
+      });
+    } finally {
+      if (requisicao === exclusaoReqRef.current) setVerificandoExclusaoId(null);
+    }
+  }
+
+  async function confirmarExclusao() {
+    if (!modalExcluirOpen || excluindo) return;
+    setExcluindo(true);
+    try {
+      await erpRepository.deleteOrcamento(modalExcluirOpen.orc.id);
+      toast.success(`Orçamento "${modalExcluirOpen.orc.nome}" excluído.`);
+      // O editor pode estar aberto justamente na planilha que sumiu.
+      if (activeOrcamento?.id === modalExcluirOpen.orc.id) fecharEditor();
+      setModalExcluirOpen(null);
+      await loadOrcamentosList();
+    } catch (err) {
+      toast.error('Não foi possível excluir', {
+        description: err instanceof Error ? err.message : 'Tente novamente.',
+      });
+    } finally {
+      setExcluindo(false);
     }
   }
 
@@ -330,14 +420,35 @@ function OrcamentosPage() {
                 <span>Exportar Excel</span>
               </button>
 
+              {activeOrcamento.status === 'aprovado' && edicaoLiberadaId !== activeOrcamento.id && (
+                <button
+                  onClick={() => pedirLiberacaoEdicao(activeOrcamento)}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-amber-50 text-amber-700 hover:bg-amber-100 rounded-xl text-xs font-bold border border-amber-200 transition-all"
+                >
+                  <Unlock className="w-4 h-4" />
+                  <span>Editar planilha aprovada</span>
+                </button>
+              )}
+
               <button
-                onClick={() => { setIsEditing(false); setActiveOrcamento(null); }}
+                onClick={fecharEditor}
                 className="px-4 py-2 bg-black/5 text-ink-primary hover:bg-black/10 rounded-xl text-xs font-bold"
               >
                 Fechar Editor
               </button>
             </div>
           </div>
+
+          {activeOrcamento.status === 'aprovado' && edicaoLiberadaId === activeOrcamento.id && (
+            <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-2xl p-4">
+              <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="text-xs text-amber-900 leading-relaxed">
+                <span className="font-bold block">Você está editando uma planilha aprovada.</span>
+                O acompanhamento compara o realizado contra estes valores — alterar um item muda a base
+                de comparação dos títulos já apropriados nele. Fechar o editor tranca a planilha de novo.
+              </div>
+            </div>
+          )}
 
           {/* GRID TIPO PLANILHA */}
           <OrcamentoSpreadsheetEditor
@@ -349,10 +460,10 @@ function OrcamentosPage() {
             obraNome={activeOrcamento.centroCustoNome}
             orcamentoId={activeOrcamento.id}
             initialItens={activeOrcamento.itens}
-            isReadonly={activeOrcamento.status === 'aprovado'}
+            isReadonly={activeOrcamento.status === 'aprovado' && edicaoLiberadaId !== activeOrcamento.id}
             onNovaUnidade={(nova) => setCentrosCusto(prev => [...prev, nova])}
             onSave={handleSaveSpreadsheetItens}
-            onCancel={() => { setIsEditing(false); setActiveOrcamento(null); }}
+            onCancel={fecharEditor}
           />
         </div>
       ) : (
@@ -539,6 +650,15 @@ function OrcamentosPage() {
                             )}
 
                             <button
+                              onClick={() => pedirExclusao(orc)}
+                              disabled={verificandoExclusaoId !== null}
+                              title="Excluir orçamento"
+                              className="p-1.5 bg-surface border border-black/10 text-ink-muted hover:text-rose-600 hover:border-rose-200 hover:bg-rose-50 disabled:opacity-40 disabled:hover:text-ink-muted rounded-lg transition-all"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+
+                            <button
                               onClick={() => handleExportarExcel(orc)}
                               title="Exportar CSV/Excel"
                               className="p-1.5 bg-surface border border-black/10 text-ink-muted hover:text-ink-primary rounded-lg transition-all"
@@ -717,6 +837,191 @@ function OrcamentosPage() {
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* MODAL: LIBERAR EDIÇÃO DE ORÇAMENTO APROVADO */}
+      <AnimatePresence>
+        {modalEdicaoOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-surface rounded-2xl p-6 w-full max-w-md shadow-2xl border border-black/10 space-y-4"
+            >
+              <div className="flex items-center justify-between border-b border-black/5 pb-3">
+                <div>
+                  <h3 className="text-base font-bold text-ink-primary">Editar planilha aprovada</h3>
+                  <p className="text-xs text-ink-muted">{modalEdicaoOpen.nome}</p>
+                </div>
+                <button onClick={() => setModalEdicaoOpen(null)} className="text-ink-muted hover:text-ink-primary">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 space-y-2">
+                <p>
+                  Este orçamento foi aprovado e está congelado. O acompanhamento usa estes valores como base
+                  para calcular consumo e estouro.
+                </p>
+                <p>
+                  Editar altera essa base para os títulos que já foram apropriados aqui. Se a intenção é
+                  registrar mudança de escopo preservando o histórico, use <strong>Nova Revisão</strong> no lugar.
+                </p>
+              </div>
+
+              <p className="text-xs text-ink-muted">
+                A planilha destrava só nesta sessão de edição. Ao fechar o editor, ela volta a ficar congelada.
+              </p>
+
+              <div className="flex justify-end gap-3 pt-1">
+                <button
+                  onClick={() => setModalEdicaoOpen(null)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-ink-muted hover:bg-black/5"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={confirmarLiberacaoEdicao}
+                  className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-semibold shadow-md"
+                >
+                  Destravar para edição
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* MODAL: EXCLUIR ORÇAMENTO */}
+      <AnimatePresence>
+        {modalExcluirOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-surface rounded-2xl p-6 w-full max-w-lg shadow-2xl border border-black/10 space-y-4"
+            >
+              <div className="flex items-center justify-between border-b border-black/5 pb-3">
+                <div>
+                  <h3 className="text-base font-bold text-ink-primary">
+                    {modalExcluirOpen.previa.podeExcluir
+                      ? 'Excluir orçamento'
+                      : 'Este orçamento não pode ser excluído'}
+                  </h3>
+                  <p className="text-xs text-ink-muted">
+                    {modalExcluirOpen.orc.centroCustoCodigo} · {modalExcluirOpen.previa.orcamentoNome}
+                  </p>
+                </div>
+                <button onClick={() => setModalExcluirOpen(null)} className="text-ink-muted hover:text-ink-primary">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {modalExcluirOpen.previa.podeExcluir ? (
+                <>
+                  <div className="p-3 bg-rose-50 rounded-xl border border-rose-200 text-xs text-rose-900 space-y-2">
+                    <span className="font-bold block">A exclusão é definitiva e não tem como desfazer.</span>
+                    <p>
+                      Vão junto <strong>{modalExcluirOpen.previa.itensCount} item(ns)</strong> da planilha e a
+                      distribuição mensal deles, somando{' '}
+                      <strong className="font-mono">
+                        {formatCurrency(modalExcluirOpen.previa.valorTotalCentavos)}
+                      </strong>{' '}
+                      orçados.
+                    </p>
+                    <p>Nenhum título está apropriado nesta planilha, então nada de financeiro é afetado.</p>
+                  </div>
+
+                  <p className="text-xs text-ink-muted">
+                    Se o objetivo é só tirar a planilha de circulação sem perdê-la, encerre o orçamento em vez
+                    de excluir.
+                  </p>
+
+                  <div className="flex justify-end gap-3 pt-1">
+                    <button
+                      onClick={() => setModalExcluirOpen(null)}
+                      className="px-4 py-2 rounded-xl text-xs font-semibold text-ink-muted hover:bg-black/5"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={confirmarExclusao}
+                      disabled={excluindo}
+                      className="px-5 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white rounded-xl text-xs font-semibold shadow-md flex items-center gap-1.5"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      {excluindo ? 'Excluindo...' : 'Excluir definitivamente'}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {modalExcluirOpen.previa.revisoesDependentes ? (
+                    <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 space-y-1">
+                      <span className="font-bold block">Esta planilha é a base de uma revisão.</span>
+                      <p>
+                        A revisão {modalExcluirOpen.previa.revisoesDependentes} aponta para este orçamento como
+                        versão de origem. Exclua a revisão primeiro, ou encerre este orçamento — assim a
+                        comparação entre as versões continua de pé.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 space-y-1">
+                      <span className="font-bold block">
+                        {modalExcluirOpen.previa.bloqueios.length} apropriação(ões) apontam para itens desta planilha.
+                      </span>
+                      <p>
+                        Apagar levaria junto o vínculo de títulos já lançados. Retire a apropriação nos títulos
+                        abaixo e tente de novo — ou encerre o orçamento, que o tira de circulação preservando o
+                        histórico.
+                      </p>
+                    </div>
+                  )}
+
+                  <div
+                    className="max-h-56 overflow-y-auto border border-black/10 rounded-xl"
+                    hidden={modalExcluirOpen.previa.bloqueios.length === 0}
+                  >
+                    <table className="w-full text-left text-[11px]">
+                      <thead className="bg-surface-muted">
+                        <tr className="text-ink-muted font-bold">
+                          <th className="p-2">Título</th>
+                          <th className="p-2">Item apropriado</th>
+                          <th className="p-2 text-right">Valor</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-black/5">
+                        {modalExcluirOpen.previa.bloqueios.map((b, i) => (
+                          <tr key={`${b.tituloId}-${i}`}>
+                            <td className="p-2">
+                              <span className="font-bold text-ink-primary block">{b.tituloCodigo}</span>
+                              <span className="text-ink-muted">{b.tituloDescricao || '-'}</span>
+                            </td>
+                            <td className="p-2 text-ink-primary">{b.itemDescricao}</td>
+                            <td className="p-2 text-right font-mono font-bold text-ink-primary">
+                              {formatCurrency(b.valorRateadoCentavos)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="flex justify-end pt-1">
+                    <button
+                      onClick={() => setModalExcluirOpen(null)}
+                      className="px-5 py-2 bg-black/5 text-ink-primary hover:bg-black/10 rounded-xl text-xs font-semibold"
+                    >
+                      Entendi
+                    </button>
+                  </div>
+                </>
+              )}
             </motion.div>
           </div>
         )}

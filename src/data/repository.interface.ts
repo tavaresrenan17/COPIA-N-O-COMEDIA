@@ -29,6 +29,7 @@ import {
   Orcamento,
   OrcamentoItem,
   OrcamentoItemPeriodo,
+  ExclusaoOrcamentoPrevia,
   DisponibilidadeOrcamentariaResultado,
   Recorrencia,
   StatusRecorrencia,
@@ -272,6 +273,17 @@ export interface IErpRepository {
   }): Promise<Orcamento>;
   aprovarOrcamento(id: string, usuario?: string): Promise<Orcamento>;
   criarRevisaoOrcamento(id: string, motivoRevisao: string, usuario?: string): Promise<Orcamento>;
+  /**
+   * O que a exclusão vai levar junto, e o que a impede. Consultado ANTES de
+   * excluir, para a confirmação mostrar consequência real em vez de perguntar
+   * "tem certeza?" sobre um número que o usuário não conhece.
+   */
+  previaExclusaoOrcamento(id: string): Promise<ExclusaoOrcamentoPrevia>;
+  /**
+   * Apaga a planilha e seus itens. Recusa, com a lista de títulos, quando algum
+   * item está apropriado — apropriação é histórico financeiro, não some junto.
+   */
+  deleteOrcamento(id: string): Promise<boolean>;
 
   // Métodos retrocompatíveis de orçamentos
   getOrcamentosEmpreendimento(filtro?: { centroCustoId?: string; apenasVigentes?: boolean }): Promise<OrcamentoEmpreendimento[]>;
