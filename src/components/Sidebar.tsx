@@ -14,6 +14,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { DEPARTMENTS, DepartmentConfig } from '@/data/departments';
 import { useSidebar } from '@/context/SidebarContext';
+import { paginaAnterior } from '@/lib/navegacao';
 
 interface MenuItem {
   href: string;
@@ -99,9 +100,41 @@ function ItemNav({
   );
 }
 
-export function Sidebar() {
+/**
+ * Sobe um nível na hierarquia do app — não desfaz a última navegação.
+ *
+ * Era `router.back()`, o histórico do navegador. Quem lançava um título e
+ * voltava para a listagem caía de novo dentro do cadastro daquele título já
+ * salvo, porque foi por ali que passou; e quem abria o sistema direto numa URL
+ * profunda clicava e não ia a lugar nenhum, por não haver histórico. Subir pela
+ * estrutura dá sempre o mesmo destino, venha a pessoa de onde vier.
+ *
+ * Some na Home, onde não há para onde subir.
+ */
+function BotaoVoltar({ isCollapsed }: { isCollapsed?: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
+  const destino = paginaAnterior(pathname);
+
+  if (!destino) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={() => router.push(destino)}
+      title={isCollapsed ? 'Voltar página anterior' : undefined}
+      className={`flex w-full items-center ${
+        isCollapsed ? 'justify-center py-2' : 'gap-2.5 px-3 py-2 text-[13px]'
+      } rounded-lg font-medium text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white`}
+    >
+      <ArrowLeft className="h-4 w-4 shrink-0 text-white/70" />
+      {!isCollapsed && <span>Voltar página anterior</span>}
+    </button>
+  );
+}
+
+export function Sidebar() {
+  const pathname = usePathname();
   const { isCollapsed, toggleSidebar } = useSidebar();
 
   const idDepartamentoAtivo = Object.keys(DEPARTMENTS).find((chave) => {
@@ -167,17 +200,7 @@ export function Sidebar() {
             </div>
 
             <div className="pt-2">
-              <button
-                type="button"
-                onClick={() => router.back()}
-                title={isCollapsed ? 'Voltar página anterior' : undefined}
-                className={`flex w-full items-center ${
-                  isCollapsed ? 'justify-center py-2' : 'gap-2.5 px-3 py-2 text-[13px]'
-                } rounded-lg font-medium text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white`}
-              >
-                <ArrowLeft className="h-4 w-4 shrink-0 text-white/70" />
-                {!isCollapsed && <span>Voltar página anterior</span>}
-              </button>
+              <BotaoVoltar isCollapsed={isCollapsed} />
             </div>
           </>
         ) : departamentoAtivo ? (
@@ -236,17 +259,7 @@ export function Sidebar() {
             )}
 
             <div className="pt-2">
-              <button
-                type="button"
-                onClick={() => router.back()}
-                title={isCollapsed ? 'Voltar página anterior' : undefined}
-                className={`flex w-full items-center ${
-                  isCollapsed ? 'justify-center py-2' : 'gap-2.5 px-3 py-2 text-[13px]'
-                } rounded-lg font-medium text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white`}
-              >
-                <ArrowLeft className="h-4 w-4 shrink-0 text-white/70" />
-                {!isCollapsed && <span>Voltar página anterior</span>}
-              </button>
+              <BotaoVoltar isCollapsed={isCollapsed} />
             </div>
           </>
         ) : (
