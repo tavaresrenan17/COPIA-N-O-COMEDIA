@@ -73,6 +73,23 @@ import {
  * variáveis antigas fala com o banco antigo mesmo depois da migration aplicada
  * no certo, e sem o `ref` na tela isso parece "a migration não pegou".
  */
+/**
+ * O vínculo do centro de custo com a Linha de Gestão depende da migration 10.
+ *
+ * Mesma regra do erro acima: campo PREENCHIDO com coluna ausente vira recusa,
+ * nunca descarte silencioso. Sem isto, escolher a Linha e salvar devolvia
+ * sucesso, perdia o vínculo, e a Apropriação depois mandava o usuário fazer
+ * exatamente o que ele acabara de fazer.
+ */
+function erroMigration10(): Error {
+  return new Error(
+    'O vínculo com a Linha de Gestão não pôde ser gravado: o banco em uso (projeto Supabase ' +
+    `"${supabaseProjectRef}") não tem a migration 10 ` +
+    '(supabase/migrations/10_centro_custo_linha_gestao.sql). ' +
+    'Rode-a no Supabase → SQL Editor e tente de novo.'
+  );
+}
+
 function erroMigration09(oQue: string): Error {
   return new Error(
     `${oQue} não pôde ser gravado: o banco em uso (projeto Supabase ` +
@@ -520,6 +537,7 @@ export class SupabaseErpRepository implements IErpRepository {
       tipo: cc.tipo,
       nivel: cc.nivel,
       aceitaLancamento: cc.aceita_lancamento,
+      linhaGestaoId: cc.linha_gestao_id ?? null,
       dataInicio: cc.data_inicio,
       dataFim: cc.data_fim,
       ativo: cc.ativo,
@@ -544,6 +562,7 @@ export class SupabaseErpRepository implements IErpRepository {
       tipo: cc.tipo,
       nivel: cc.nivel,
       aceitaLancamento: cc.aceita_lancamento,
+      linhaGestaoId: cc.linha_gestao_id ?? null,
       dataInicio: cc.data_inicio,
       dataFim: cc.data_fim,
       ativo: cc.ativo,
@@ -565,6 +584,7 @@ export class SupabaseErpRepository implements IErpRepository {
       tipo: data.tipo,
       nivel: data.nivel,
       aceitaLancamento: data.aceita_lancamento,
+      linhaGestaoId: data.linha_gestao_id ?? null,
       dataInicio: data.data_inicio,
       dataFim: data.data_fim,
       ativo: data.ativo,
@@ -575,7 +595,7 @@ export class SupabaseErpRepository implements IErpRepository {
 
   async createCentroCusto(data: Omit<CentroCusto, 'id' | 'createdAt' | 'updatedAt' | 'gastoCentavos'>): Promise<CentroCusto> {
     if (!this.client) return this.fallbackMock.createCentroCusto(data);
-    const { data: inserted, error } = await this.client.from('centro_custo').insert({
+    const linha: Record<string, unknown> = {
       codigo: data.codigo,
       nome: data.nome,
       parent_id: data.parentId || null,
@@ -585,7 +605,16 @@ export class SupabaseErpRepository implements IErpRepository {
       data_inicio: data.dataInicio || null,
       data_fim: data.dataFim || null,
       ativo: data.ativo ?? true
-    }).select().single();
+    };
+    // Coluna da migration 10: sem a guarda, o insert inteiro falharia no banco
+    // que ainda não a recebeu. Mas vínculo escolhido não se perde calado.
+    if (await this.temColuna('centro_custo', 'linha_gestao_id')) {
+      linha.linha_gestao_id = toUuidOrNull(data.linhaGestaoId);
+    } else if (toUuidOrNull(data.linhaGestaoId)) {
+      throw erroMigration10();
+    }
+
+    const { data: inserted, error } = await this.client.from('centro_custo').insert(linha).select().single();
     this.cache.invalidar('centro_custo');   // só depois da escrita confirmada
     if (error || !inserted) throw new Error(error?.message || 'Erro ao criar centro de custo');
     return this.getCentroCustoById(inserted.id) as Promise<CentroCusto>;
@@ -605,6 +634,13 @@ export class SupabaseErpRepository implements IErpRepository {
     if (data.tipo !== undefined) payload.tipo = data.tipo;
     if (data.nivel !== undefined) payload.nivel = data.nivel;
     if (data.aceitaLancamento !== undefined) payload.aceita_lancamento = data.aceitaLancamento;
+    if (data.linhaGestaoId !== undefined) {
+      if (await this.temColuna('centro_custo', 'linha_gestao_id')) {
+        payload.linha_gestao_id = toUuidOrNull(data.linhaGestaoId);
+      } else if (toUuidOrNull(data.linhaGestaoId)) {
+        throw erroMigration10();
+      }
+    }
     if (data.dataInicio !== undefined) payload.data_inicio = data.dataInicio || null;
     if (data.dataFim !== undefined) payload.data_fim = data.dataFim || null;
     if (data.ativo !== undefined) payload.ativo = data.ativo;

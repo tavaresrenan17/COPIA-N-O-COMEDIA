@@ -718,7 +718,7 @@ function OrcamentosPage() {
                   >
                     <option value="">Selecione o Centro de Custo...</option>
                     {(obras.length > 0 ? obras : centrosCusto).map(cc => {
-                      const lg = linhasGestao.find(l => l.centroCustoId === cc.id);
+                      const lg = linhasGestao.find(l => l.id === cc.linhaGestaoId);
                       return (
                         <option key={cc.id} value={cc.id}>
                           {cc.codigo} - {cc.nome}{lg ? ` (Linha: ${lg.codigo} - ${lg.nome})` : ''}

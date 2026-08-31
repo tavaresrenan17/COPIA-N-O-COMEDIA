@@ -62,9 +62,12 @@ export default function CentroCustosPage() {
   const getLinhaVinculadaDoCentroOuAncestrais = (centroId?: string | null) => {
     let atualId = centroId;
     while (atualId) {
-      const linha = linhasGestao.find((l) => l.centroCustoId === atualId);
-      if (linha) return linha;
       const centro = centrosTodos.find((c) => c.id === atualId);
+      // O vínculo mora no centro de custo; a unidade construtiva herda o da obra.
+      if (centro?.linhaGestaoId) {
+        const linha = linhasGestao.find((l) => l.id === centro.linhaGestaoId);
+        if (linha) return linha;
+      }
       atualId = centro?.parentId;
     }
     return null;
@@ -112,10 +115,12 @@ export default function CentroCustosPage() {
     setFormDataInicio(item.dataInicio || '');
     setFormDataFim(item.dataFim || '');
 
-    // Busca linha de gestão vinculada a este centro de custo ou herdada da Obra pai
-    const linhaVinculada =
-      linhasGestao.find((l) => l.centroCustoId === item.id) ||
-      (item.parentId ? getLinhaVinculadaDoCentroOuAncestrais(item.parentId) : null);
+    /*
+     * Linha do próprio centro de custo ou herdada da obra-mãe. Precisa ser
+     * carregada aqui: sem isto o campo abria vazio ao editar e salvar apagava o
+     * vínculo, já que o formulário grava o que está na tela.
+     */
+    const linhaVinculada = getLinhaVinculadaDoCentroOuAncestrais(item.id);
     if (linhaVinculada) {
       setFormGrupoGestaoId(linhaVinculada.grupoGestaoId);
       setFormLinhaGestaoId(linhaVinculada.id);
@@ -173,6 +178,15 @@ export default function CentroCustosPage() {
       tipo: formTipo,
       nivel,
       aceitaLancamento: formAceitaLancamento,
+      /*
+       * Só o nó de topo guarda o vínculo. A unidade construtiva HERDA a linha da
+       * obra pela árvore (ver `obrasDasLinhasGestao`), então gravar uma cópia no
+       * filho só cria divergência: trocar a linha da obra depois deixaria o
+       * filho apontando para a linha antiga, e as obras dele apareceriam nas
+       * duas linhas ao mesmo tempo. O campo continua visível no formulário do
+       * filho, mostrando a linha herdada.
+       */
+      linhaGestaoId: formParentId ? null : formLinhaGestaoId || null,
       dataInicio: formDataInicio || null,
       dataFim: formDataFim || null,
       ativo: true
@@ -192,49 +206,16 @@ export default function CentroCustosPage() {
       return;
     }
 
-    // Sincroniza o vínculo com a Linha de Gestão
-    if (centroCustoSalvoId) {
-      const isRaiz = !formParentId;
-
-      if (isRaiz) {
-        // Obra / Centro de Custo Raiz: atualiza o centroCustoId na Linha de Gestão
-        const linhaAnterior = linhasGestao.find((l) => l.centroCustoId === centroCustoSalvoId);
-
-        if (formLinhaGestaoId) {
-          if (linhaAnterior && linhaAnterior.id !== formLinhaGestaoId) {
-            try {
-              await erpRepository.updateLinhaGestao(linhaAnterior.id, { centroCustoId: undefined });
-            } catch (e) {
-              console.warn('Erro ao desvincular linha anterior:', e);
-            }
-          }
-          try {
-            await erpRepository.updateLinhaGestao(formLinhaGestaoId, { centroCustoId: centroCustoSalvoId });
-          } catch (e) {
-            console.warn('Erro ao vincular linha de gestão:', e);
-          }
-        } else if (linhaAnterior) {
-          try {
-            await erpRepository.updateLinhaGestao(linhaAnterior.id, { centroCustoId: undefined });
-          } catch (e) {
-            console.warn('Erro ao desvincular linha de gestão:', e);
-          }
-        }
-      } else {
-        // Unidade Construtiva (filho): garante que a Linha de Gestão selecionada continue apontando para a Obra raiz
-        const obraPaiId = formParentId;
-        if (formLinhaGestaoId && obraPaiId) {
-          const linhaEscolhida = linhasGestao.find((l) => l.id === formLinhaGestaoId);
-          if (linhaEscolhida && !linhaEscolhida.centroCustoId) {
-            try {
-              await erpRepository.updateLinhaGestao(formLinhaGestaoId, { centroCustoId: obraPaiId });
-            } catch (e) {
-              console.warn('Erro ao vincular Linha de Gestão à Obra raiz:', e);
-            }
-          }
-        }
-      }
-    }
+    /*
+     * O vínculo com a Linha de Gestão vai junto no payload acima.
+     *
+     * Aqui havia ~40 linhas que gravavam do outro lado, em
+     * `linha_gestao.centro_custo_id`. Como aquela coluna é 1:1, vincular um
+     * segundo centro de custo à mesma linha ROUBAVA o vínculo do primeiro — e o
+     * código precisava de um passo explícito de "desvincular a linha anterior"
+     * só por causa disso. Com o vínculo no centro de custo, várias obras cabem
+     * na mesma linha, que é o que a Apropriação precisa.
+     */
 
     // Mover um nó muda a profundidade de tudo abaixo dele.
     if (editingId) {
@@ -298,7 +279,7 @@ export default function CentroCustosPage() {
       return cc.nome.toLowerCase().includes(searchTerm.toLowerCase()) || cc.codigo.includes(searchTerm);
     })
     .map((cc) => {
-      const linhaVinculada = linhasGestao.find((l) => l.centroCustoId === cc.id);
+      const linhaVinculada = linhasGestao.find((l) => l.id === cc.linhaGestaoId);
 
       return {
         id: cc.id,

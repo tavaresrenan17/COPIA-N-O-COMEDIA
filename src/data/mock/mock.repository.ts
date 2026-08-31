@@ -96,17 +96,17 @@ let mockRecorrenciaLogs: LogExecucaoFila[] = [];
 let mockOrcamentosEmpreendimento: Orcamento[] = [];
 
 /**
- * Id de orçamento no mock.
+ * Id único no mock.
  *
- * Era `orc-emp-${Date.now()}`, e duas criações no mesmo milissegundo saíam com
- * o MESMO id — o que acontece o tempo todo, inclusive entre um orçamento e a
- * revisão criada logo em seguida. A partir daí `find(o => o.id === id)` devolvia
- * o primeiro da lista em vez do procurado, e como a lista usa `unshift`, o
- * primeiro é o mais novo: pedir a base devolvia a revisão. O contador remove o
- * empate sem depender do relógio.
+ * Era `${prefixo}-${Date.now()}` em cada cadastro, e duas criações no mesmo
+ * milissegundo saíam com o MESMO id — o que acontece o tempo todo. A partir daí
+ * `find(x => x.id === id)` devolve o primeiro da lista em vez do procurado, e o
+ * efeito é silencioso: dois registros distintos viram um. Já custou três
+ * rodadas de teste falso (orçamento vs. revisão, centro de custo, linha de
+ * gestão), então agora é um contador só para todo mundo.
  */
-let seqIdOrcamento = 0;
-const novoIdOrcamento = () => `orc-emp-${Date.now()}-${++seqIdOrcamento}`;
+let seqIdMock = 0;
+const novoId = (prefixo: string) => `${prefixo}-${Date.now()}-${++seqIdMock}`;
 
 // Mock Data: Plano de Contas Oficial (Dimensão Contábil Base DRE)
 let mockPlanoContas: PlanoConta[] = [
@@ -229,7 +229,7 @@ export class MockErpRepository implements IErpRepository {
     return mockPlanoContas.find(pc => pc.id === id) || null;
   }
   async createPlanoConta(data: Omit<PlanoConta, 'id' | 'createdAt' | 'updatedAt'>): Promise<PlanoConta> {
-    const newPc = { ...data, id: `pc-${Date.now()}`, ativo: data.ativo ?? true, createdAt: new Date().toISOString().split('T')[0] };
+    const newPc = { ...data, id: novoId('pc'), ativo: data.ativo ?? true, createdAt: new Date().toISOString().split('T')[0] };
     mockPlanoContas.push(newPc);
     return newPc;
   }
@@ -271,7 +271,8 @@ export class MockErpRepository implements IErpRepository {
     const newCc: CentroCusto = { 
       ...data, 
       subempresaNome,
-      id: `cc-${Date.now()}`, 
+      id: novoId('cc'),
+      
       gastoCentavos: 0, 
       ativo: data.ativo ?? true, 
       createdAt: new Date().toISOString().split('T')[0] 
@@ -308,7 +309,7 @@ export class MockErpRepository implements IErpRepository {
     return mockContasBancarias.find(cb => cb.id === id) || null;
   }
   async createContaBancaria(data: Omit<ContaBancaria, 'id' | 'createdAt' | 'updatedAt'>): Promise<ContaBancaria> {
-    const newCb = { ...data, id: `cb-${Date.now()}`, ativo: data.ativo ?? true, createdAt: new Date().toISOString().split('T')[0] };
+    const newCb = { ...data, id: novoId('cb'), ativo: data.ativo ?? true, createdAt: new Date().toISOString().split('T')[0] };
     mockContasBancarias.unshift(newCb);
     return newCb;
   }
@@ -413,7 +414,7 @@ export class MockErpRepository implements IErpRepository {
     const codigoSequencial = String(proximoSeq).padStart(3, '0');
     const obra = data.centroCustoId ? mockCentrosCusto.find(c => c.id === data.centroCustoId) : null;
     const newL: LinhaGestao = {
-      id: `lg-${Date.now()}`,
+      id: novoId('lg'),
       grupoGestaoId: data.grupoGestaoId,
       grupoGestaoNome: grupo?.nome,
       centroCustoId: data.centroCustoId,
@@ -480,7 +481,7 @@ export class MockErpRepository implements IErpRepository {
   async createSubempresa(data: Omit<Subempresa, 'id' | 'createdAt' | 'updatedAt'>): Promise<Subempresa> {
     const newSub: Subempresa = {
       ...data,
-      id: `sub-${Date.now()}`,
+      id: novoId('sub'),
       ativo: data.ativo ?? true,
       createdAt: new Date().toISOString().split('T')[0]
     };
@@ -512,7 +513,7 @@ export class MockErpRepository implements IErpRepository {
     const sub = mockSubempresas.find(s => s.id === data.subempresaId);
     const newG: GrupoLinhaCusto = {
       ...data,
-      id: `glc-${Date.now()}`,
+      id: novoId('glc'),
       subempresaNome: sub?.nome,
       ativo: data.ativo ?? true,
       createdAt: new Date().toISOString().split('T')[0]
@@ -552,7 +553,7 @@ export class MockErpRepository implements IErpRepository {
     const cc = data.centroCustoId ? mockCentrosCusto.find(c => c.id === data.centroCustoId) : null;
     const newL: LinhaCusto = {
       ...data,
-      id: `lc-${Date.now()}`,
+      id: novoId('lc'),
       grupoLinhaCustoNome: grupo?.nome,
       centroCustoCodigo: cc?.codigo,
       centroCustoNome: cc?.nome,
@@ -592,7 +593,7 @@ export class MockErpRepository implements IErpRepository {
 
     const seq = nextTituloSeqCounter++;
     const codigoUnico = String(seq).padStart(6, '0');
-    const tituloId = `tit-${Date.now()}`;
+    const tituloId = novoId('tit');
     const usuarioLog = (data as any).usuario || 'Fabrício (Administrador)';
     const dataHoraFormatada = new Date().toLocaleString('pt-BR');
 
@@ -1652,7 +1653,7 @@ export class MockErpRepository implements IErpRepository {
 
   async getContasPagar(): Promise<ContaPagar[]> { return [...mockContasPagar]; }
   async createContaPagar(data: Omit<ContaPagar, 'id'>): Promise<ContaPagar> {
-    const newCp = { ...data, id: `cp-${Date.now()}` };
+    const newCp = { ...data, id: novoId('cp') };
     mockContasPagar.unshift(newCp);
     return newCp;
   }
@@ -1673,7 +1674,7 @@ export class MockErpRepository implements IErpRepository {
 
   async getContasReceber(): Promise<ContaReceber[]> { return [...mockContasReceber]; }
   async createContaReceber(data: Omit<ContaReceber, 'id'>): Promise<ContaReceber> {
-    const newCr = { ...data, id: `cr-${Date.now()}` };
+    const newCr = { ...data, id: novoId('cr') };
     mockContasReceber.unshift(newCr);
     return newCr;
   }
@@ -1694,7 +1695,7 @@ export class MockErpRepository implements IErpRepository {
 
   async getOrcamentosDAV(): Promise<OrcamentoDAV[]> { return [...mockOrcamentos]; }
   async createOrcamentoDAV(data: Omit<OrcamentoDAV, 'id'>): Promise<OrcamentoDAV> {
-    const newOrc = { ...data, id: `orc-${Date.now()}` };
+    const newOrc = { ...data, id: novoId('orc') };
     mockOrcamentos.unshift(newOrc);
     return newOrc;
   }
@@ -1797,7 +1798,7 @@ export class MockErpRepository implements IErpRepository {
       }
     }
 
-    const id = novoIdOrcamento();
+    const id = novoId('orc-emp');
     let valorTotalGeral = 0;
 
     const itensConvertidos: OrcamentoItem[] = data.itens.map((it, idx) => {
@@ -2052,7 +2053,7 @@ export class MockErpRepository implements IErpRepository {
     }
 
     const proxVersao = base.versao + 1;
-    const newId = novoIdOrcamento();
+    const newId = novoId('orc-emp');
     const baseId = base.versao === 1 ? base.id : (base.orcamentoBaseId || base.id);
 
     const novaRevisao: Orcamento = {
@@ -2497,7 +2498,7 @@ export class MockErpRepository implements IErpRepository {
     const pes = mockPessoas.find(p => p.id === data.pessoaId);
     const pc = mockPlanoContas.find(p => p.id === data.planoContaId);
 
-    const id = `rec-${Date.now()}`;
+    const id = novoId('rec');
     const dataIni = data.dataInicio || new Date().toISOString().split('T')[0];
     const proximaCompetencia = `${dataIni.substring(0, 7)}-01`;
 
@@ -2693,7 +2694,7 @@ export class MockErpRepository implements IErpRepository {
     mockTitulos.unshift(newTitulo);
 
     const newOcorrencia: RecorrenciaOcorrencia = {
-      id: `ocor-${Date.now()}`,
+      id: novoId('ocor'),
       recorrenciaId,
       recorrenciaDescricao: rec.descricao,
       competencia,
@@ -2750,7 +2751,7 @@ export class MockErpRepository implements IErpRepository {
     }
 
     const logItem: LogExecucaoFila = {
-      id: `log-${Date.now()}`,
+      id: novoId('log'),
       dataExecucao: new Date().toISOString().replace('T', ' ').substring(0, 19),
       qtdGeradas,
       qtdPuladas,
@@ -2766,7 +2767,7 @@ export class MockErpRepository implements IErpRepository {
     const rec = mockRecorrencias.find(r => r.id === recorrenciaId);
 
     const ocor: RecorrenciaOcorrencia = {
-      id: `ocor-${Date.now()}`,
+      id: novoId('ocor'),
       recorrenciaId,
       recorrenciaDescricao: rec?.descricao,
       competencia,
@@ -3057,7 +3058,7 @@ export class MockErpRepository implements IErpRepository {
   }
 
   async confirmarImportacaoOFX(contaBancariaId: string, preview: PreviewImportacaoOFX): Promise<ExtratoImportacao> {
-    const idImp = `imp-${Date.now()}`;
+    const idImp = novoId('imp');
     const novaImp: ExtratoImportacao = {
       id: idImp,
       contaBancariaId,
@@ -3279,7 +3280,7 @@ export class MockErpRepository implements IErpRepository {
     });
 
     mockConciliacaoLogs.unshift({
-      id: `log-${Date.now()}`,
+      id: novoId('log'),
       contaBancariaId: item.contaBancariaId,
       extratoItemId: item.id,
       acao: 'conciliado_manual',
@@ -3297,7 +3298,7 @@ export class MockErpRepository implements IErpRepository {
     item.observacao = motivo;
 
     mockConciliacaoLogs.unshift({
-      id: `log-${Date.now()}`,
+      id: novoId('log'),
       contaBancariaId: item.contaBancariaId,
       extratoItemId: item.id,
       acao: 'desconciliado',
@@ -3314,7 +3315,7 @@ export class MockErpRepository implements IErpRepository {
 
     const newRegra: ConciliacaoRegra = {
       ...data,
-      id: `reg-${Date.now()}`,
+      id: novoId('reg'),
       pessoaNome: pes?.nome,
       planoContaNome: pc?.nome,
       centroCustoNome: cc?.nome,
@@ -3469,7 +3470,7 @@ export class MockErpRepository implements IErpRepository {
     mov.dataConciliacao = item.conciliadoEm;
 
     mockConciliacaoLogs.unshift({
-      id: `log-${Date.now()}`,
+      id: novoId('log'),
       contaBancariaId: item.contaBancariaId,
       extratoItemId: item.id,
       movimentoId: mov.id,
@@ -3501,7 +3502,7 @@ export class MockErpRepository implements IErpRepository {
     item.conciliadoPor = undefined;
 
     mockConciliacaoLogs.unshift({
-      id: `log-${Date.now()}`,
+      id: novoId('log'),
       contaBancariaId: item.contaBancariaId,
       extratoItemId: item.id,
       movimentoId: oldMovId,
@@ -3530,7 +3531,7 @@ export class MockErpRepository implements IErpRepository {
     const valSignedCentavos = isDespesa ? -Math.abs(data.valorPagoCentavos) : Math.abs(data.valorPagoCentavos);
 
     const newMov: Movimento = {
-      id: `mov-avulso-${Date.now()}`,
+      id: novoId('mov-avulso'),
       parcelaId: undefined, // Sem parcela vinculada!
       planoContaId: data.planoContaId,
       centroCustoId: data.centroCustoId,
@@ -3567,7 +3568,7 @@ export class MockErpRepository implements IErpRepository {
     }
 
     mockConciliacaoLogs.unshift({
-      id: `log-${Date.now()}`,
+      id: novoId('log'),
       contaBancariaId: data.contaBancariaId,
       extratoItemId: data.extratoItemId,
       movimentoId: newMov.id,

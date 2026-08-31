@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { Home, ArrowLeft, ChevronDown, Star, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useSidebar } from '@/context/SidebarContext';
-import { paginaAnterior, secoesNavegacao, secaoDaRota, itensVisiveis } from '@/lib/navegacao';
+import { paginaAnterior, secoesNavegacao, itensVisiveis } from '@/lib/navegacao';
 
 interface MenuItem {
   href: string;
@@ -184,7 +184,6 @@ export function Sidebar() {
   } = useSidebar();
 
   const secoes = useMemo(() => secoesNavegacao(), []);
-  const secaoAtual = secaoDaRota(pathname);
 
   /*
    * Só UM item fica marcado: sem isso, `/departamentos` acenderia junto com

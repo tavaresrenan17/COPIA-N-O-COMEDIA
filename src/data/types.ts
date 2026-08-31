@@ -35,6 +35,19 @@ export interface CentroCusto {
   id: string;
   codigo: string;
   nome: string;
+  /**
+   * Linha de Gestão a que este centro de custo pertence.
+   *
+   * É este vínculo que a Apropriação usa: alocar uma linha no título faz
+   * aparecer as obras (orçamentos) dos centros de custo dela. Antes o vínculo
+   * morava do outro lado, em `linha_gestao.centro_custo_id`, que é 1:1 — o
+   * segundo centro de custo ligado à mesma linha roubava o vínculo do primeiro.
+   * Opcional porque centro de custo sem linha continua válido; ele só não
+   * contribui com obra nenhuma para a Apropriação.
+   */
+  linhaGestaoId?: string | null;
+  /** Só para exibir — não é gravado. */
+  linhaGestaoNome?: string;
   parentId?: string | null;
   tipo: TipoCentroCusto;
   nivel: number;

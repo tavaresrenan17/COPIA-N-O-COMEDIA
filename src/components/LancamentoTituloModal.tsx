@@ -130,6 +130,13 @@ export function LancamentoTituloModal({ tipo, isOpen, onClose, onSuccess }: Lanc
   }
 
 
+  /*
+   * Aqui a LINHA DE CUSTO é outra entidade que a Linha de GESTÃO: ela tem o seu
+   * próprio `centroCustoId`, que a inversão do vínculo de gestão não tocou.
+   * Uma tentativa de "modernizar" este trecho comparou id de linha de custo com
+   * `centro_custo.linha_gestao_id` — nunca casava, e o preenchimento automático
+   * do rateio morria em silêncio.
+   */
   const handleGrupoChange = (newGrpId: string) => {
     setGrupoLinhaCustoId(newGrpId);
     const lins = allLinhas.filter(l => l.grupoLinhaCustoId === newGrpId);

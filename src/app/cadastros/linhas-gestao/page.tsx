@@ -33,7 +33,6 @@ export default function LinhasGestaoPage() {
   const [modalAberto, setModalAberto] = useState(false);
   const [linhaEditando, setLinhaEditando] = useState<LinhaGestao | null>(null);
   const [grupoGestaoId, setGrupoGestaoId] = useState('');
-  const [centroCustoId, setCentroCustoId] = useState('');
   const [codigo, setCodigo] = useState('');
   const [nome, setNome] = useState('');
   const [descricao, setDescricao] = useState('');
@@ -66,7 +65,6 @@ export default function LinhasGestaoPage() {
     setLinhaEditando(null);
     const gruposAtivos = grupos.filter((g) => g.ativo);
     setGrupoGestaoId(gruposAtivos[0]?.id || grupos[0]?.id || '');
-    setCentroCustoId('');
     setCodigo(proximoCodigo(linhas));
     setNome('');
     setDescricao('');
@@ -77,7 +75,6 @@ export default function LinhasGestaoPage() {
   const abrirModalEditar = (l: LinhaGestao) => {
     setLinhaEditando(l);
     setGrupoGestaoId(l.grupoGestaoId);
-    setCentroCustoId(l.centroCustoId || '');
     setCodigo(l.codigo);
     setNome(l.nome);
     setDescricao(l.descricao || '');
@@ -101,7 +98,6 @@ export default function LinhasGestaoPage() {
       if (linhaEditando) {
         await erpRepository.updateLinhaGestao(linhaEditando.id, {
           grupoGestaoId,
-          centroCustoId: centroCustoId || undefined,
           codigo,
           nome,
           descricao,
@@ -113,7 +109,6 @@ export default function LinhasGestaoPage() {
       } else {
         await erpRepository.createLinhaGestao({
           grupoGestaoId,
-          centroCustoId: centroCustoId || undefined,
           codigo,
           nome,
           descricao,
@@ -152,6 +147,11 @@ export default function LinhasGestaoPage() {
       setExcluindo(false);
     }
   };
+
+  /** Centros de custo que apontam para a linha aberta no modal — só leitura. */
+  const centrosDaLinha = linhaEditando
+    ? obras.filter((c) => c.linhaGestaoId === linhaEditando.id)
+    : [];
 
   const linhasFiltradas = linhas.filter((l) => {
     const gPai = grupos.find((g) => g.id === l.grupoGestaoId);
@@ -263,10 +263,13 @@ export default function LinhasGestaoPage() {
                 linhasFiltradas.map((l) => {
                   const gPai = grupos.find((g) => g.id === l.grupoGestaoId);
                   const nomeGrupoPai = gPai ? `${gPai.codigo} - ${gPai.nome}` : (l.grupoGestaoNome || '—');
-                  const obra = obras.find((c) => c.id === l.centroCustoId);
-                  const nomeObra = obra
-                    ? `${obra.codigo} - ${obra.nome}`
-                    : (l.centroCustoNome || '');
+                  const ccsDaLinha = obras.filter((c) => c.linhaGestaoId === l.id);
+                  const nomeObra =
+                    ccsDaLinha.length === 0
+                      ? ''
+                      : ccsDaLinha.length === 1
+                        ? `${ccsDaLinha[0].codigo} - ${ccsDaLinha[0].nome}`
+                        : `${ccsDaLinha.length} centros de custo`;
 
                   return (
                     <tr key={l.id} className="hover:bg-slate-50/80 transition-colors">
@@ -372,24 +375,34 @@ export default function LinhasGestaoPage() {
                 </select>
               </div>
 
+              {/*
+                O vínculo é editado no cadastro do CENTRO DE CUSTO, não aqui.
+                Este campo era um <select> que gravava em
+                `linha_gestao.centro_custo_id` — coluna 1:1, que só comportava
+                UMA obra por linha e fazia o segundo vínculo roubar o primeiro.
+                Continua visível, em leitura, porque saber quais obras a linha
+                reúne importa; só não se edita de dois lugares.
+              */}
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Obra Vinculada</label>
-                <select
-                  value={centroCustoId}
-                  onChange={(e) => setCentroCustoId(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-hidden focus:border-indigo-600 font-semibold"
-                >
-                  <option value="">Sem obra vinculada</option>
-                  {obras.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.codigo} - {c.nome}
-                    </option>
-                  ))}
-                </select>
+                <label className="block font-bold text-slate-700 mb-1">Centros de Custo desta linha</label>
+                <div className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 text-[13px]">
+                  {centrosDaLinha.length === 0 ? (
+                    <span className="text-slate-500">Nenhum centro de custo vinculado ainda.</span>
+                  ) : (
+                    <ul className="space-y-0.5">
+                      {centrosDaLinha.map((c) => (
+                        <li key={c.id} className="font-semibold text-slate-700">
+                          {c.codigo} - {c.nome}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
                 <p className="mt-1 text-[11px] text-slate-500 leading-relaxed">
-                  É esta obra que a aba <strong>Apropriação</strong> do título vai oferecer quando
-                  esta linha for alocada. Sem obra vinculada, a linha não contribui com nenhuma
-                  opção lá.
+                  As obras destes centros de custo são o que a aba <strong>Apropriação</strong>{' '}
+                  oferece quando esta linha é alocada num título. O vínculo é feito em{' '}
+                  <strong>Cadastros → Centro de Custos</strong>, escolhendo a linha no cadastro do
+                  centro de custo.
                 </p>
               </div>
 

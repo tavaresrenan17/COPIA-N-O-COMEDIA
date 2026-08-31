@@ -122,32 +122,32 @@ interface ItemParcelaState {
 
 /**
  * Uma linha da aba Apropriação:
- * Obra → Unidade Construtiva → Orçamento → Item de Orçamento.
+ * Nome da Obra → Unidade Construtiva → Item de Orçamento.
  *
- * As duas primeiras colunas saem da mesma árvore de sempre (`centro_custo`): a
- * raiz é a OBRA e o filho é a UNIDADE CONSTRUTIVA. O Item de Orçamento vem de
- * uma planilha orçamentária da obra — e a obra pode ter mais de uma.
+ * **A OBRA É O ORÇAMENTO.** "BOCA DE LOBO", "REFORMA COZINHA" e "CALÇADA" são
+ * obras; o centro de custo que as contém (`GRAAL TAQUARI - FASE 7`) é só o
+ * denominador que as agrupa, e não aparece como escolha.
+ *
+ * Antes a obra era o centro de custo raiz, e como um centro de custo carrega
+ * várias planilhas foi preciso uma coluna "Orçamento" para desempatar. Com a
+ * obra sendo a própria planilha, escolher a obra já escolhe o orçamento e a
+ * coluna extra deixou de existir.
+ *
+ * Quais obras aparecem é decidido pela LINHA DE GESTÃO alocada na aba anterior:
+ * a linha reúne centros de custo, e os orçamentos deles são as obras.
  */
 interface ItemRateioState {
-  /** Obra (nó de topo). Só orienta a escolha da unidade; não é gravada. */
-  obraId: string;
+  /**
+   * A obra — isto é, o id do ORÇAMENTO. **Não é gravado**: o item já pertence a
+   * um orçamento só, então na releitura a obra é deduzida do item.
+   */
+  orcamentoId: string;
   /**
    * Destino do lançamento — é ele que vai para o banco, na coluna
    * centro_custo_id. É a Unidade Construtiva escolhida ou, quando a obra não
-   * tem unidades, a própria obra.
+   * tem unidades, o próprio centro de custo do orçamento.
    */
   unidadeId: string;
-  /**
-   * Planilha orçamentária escolhida. **Não é gravada**: o item já pertence a um
-   * orçamento só, então na releitura o orçamento é deduzido do item.
-   *
-   * Existe porque uma obra pode ter vários orçamentos ao mesmo tempo — obras
-   * paralelas no mesmo centro de custo, não revisões (o `versao` é numerado por
-   * centro de custo, então a segunda planilha nasce "v2" sem revisar nada).
-   * Antes a tela escolhia uma delas sozinha e as demais ficavam inalcançáveis:
-   * os itens simplesmente não apareciam no combo.
-   */
-  orcamentoId?: string;
   /** Item da planilha orçamentária da obra. Define o plano de contas gravado. */
   orcamentoItemId?: string;
   percentualStr: string;
@@ -162,27 +162,20 @@ interface ItemRateioState {
  */
 
 /**
- * Unidades Construtivas de uma obra.
+ * Unidades Construtivas de um centro de custo.
  *
- * Obra sem unidades cadastradas recebe o lançamento nela mesma — é o que mantém
- * o título lançável enquanto a árvore da obra não foi detalhada.
+ * Centro de custo sem filhos recebe o lançamento nele mesmo — é o que mantém o
+ * título lançável enquanto a árvore da obra não foi detalhada.
  */
-function unidadesDaObraEm(centroCustos: CentroCusto[], obraId: string): CentroCusto[] {
-  if (!obraId) return [];
-  const filhos = centroCustos.filter((c) => c.parentId === obraId);
+function unidadesDaObraEm(centroCustos: CentroCusto[], centroCustoId: string): CentroCusto[] {
+  if (!centroCustoId) return [];
+  const filhos = centroCustos.filter((c) => c.parentId === centroCustoId);
   if (filhos.length > 0) return filhos;
-  return centroCustos.filter((c) => c.id === obraId);
+  return centroCustos.filter((c) => c.id === centroCustoId);
 }
 
 /**
- * TODAS as planilhas orçamentárias vivas de uma obra, aprovado primeiro.
- *
- * Função de módulo porque a hidratação do título precisa da mesma resposta que
- * o combo, e antes cada lado tinha a sua versão: a da hidratação não olhava os
- * orçamentos pendurados nas unidades construtivas, então uma obra cujo único
- * orçamento mora na unidade abria com o campo vazio e o combo de item travado.
- *
- * Ficam de fora as planilhas que não podem mais receber apropriação:
+ * Planilhas que não podem mais receber apropriação:
  * - `encerrado`: o orçamento da obra já foi fechado;
  * - `revisado`: foi substituído por uma revisão, e é a revisão que vale. Sem
  *   este segundo filtro, gerar uma revisão passava a oferecer as DUAS no combo,
@@ -193,31 +186,51 @@ function unidadesDaObraEm(centroCustos: CentroCusto[], obraId: string): CentroCu
  */
 const STATUS_FORA_DA_APROPRIACAO = ['encerrado', 'revisado'];
 
-function orcamentosVivosDaObra(
+/**
+ * As obras que a Apropriação oferece — que agora são os ORÇAMENTOS.
+ *
+ * O caminho é: linhas de gestão alocadas no título → centros de custo que
+ * apontam para elas (`centro_custo.linha_gestao_id`) → orçamentos vivos desses
+ * centros de custo.
+ *
+ * Função de módulo porque a hidratação precisa exatamente da mesma resposta que
+ * o combo: quando os dois lados tinham sua própria versão, um título abria com
+ * o campo vazio e salvar de novo regravava a apropriação sem a obra.
+ */
+function obrasDasLinhasGestao(
   orcamentos: Orcamento[],
   centroCustos: CentroCusto[],
-  obraId: string
+  linhaGestaoIds: string[]
 ): Orcamento[] {
-  if (!obraId) return [];
-  const vivos = orcamentos.filter((o) => !STATUS_FORA_DA_APROPRIACAO.includes(o.status));
-  const daObra = vivos.filter((o) => o.centroCustoId === obraId || o.id === obraId);
+  if (linhaGestaoIds.length === 0) return [];
 
-  let lista = daObra;
-  if (lista.length === 0) {
-    const unidadesIds = new Set(unidadesDaObraEm(centroCustos, obraId).map((u) => u.id));
-    lista = vivos.filter(
-      (o) =>
-        unidadesIds.has(o.centroCustoId) ||
-        o.itens.some((it) => it.centroCustoId && unidadesIds.has(it.centroCustoId))
-    );
+  const linhas = new Set(linhaGestaoIds);
+  const ccIds = new Set(
+    centroCustos.filter((c) => c.linhaGestaoId && linhas.has(c.linhaGestaoId)).map((c) => c.id)
+  );
+  if (ccIds.size === 0) return [];
+
+  /*
+   * A unidade construtiva herda a linha da obra-mãe: o vínculo é cadastrado no
+   * nó de topo, e um orçamento pendurado numa unidade pertence à mesma linha.
+   *
+   * Repete até parar de crescer: uma passada só pegaria o neto apenas se ele
+   * viesse depois do pai na ordenação por código, que é texto livre.
+   */
+  let cresceu = true;
+  while (cresceu) {
+    cresceu = false;
+    for (const cc of centroCustos) {
+      if (cc.parentId && ccIds.has(cc.parentId) && !ccIds.has(cc.id)) {
+        ccIds.add(cc.id);
+        cresceu = true;
+      }
+    }
   }
 
-  return [...lista].sort((a, b) => {
-    const aprovA = a.status === 'aprovado' ? 1 : 0;
-    const aprovB = b.status === 'aprovado' ? 1 : 0;
-    if (aprovA !== aprovB) return aprovB - aprovA;
-    return b.versao - a.versao;
-  });
+  return orcamentos
+    .filter((o) => !STATUS_FORA_DA_APROPRIACAO.includes(o.status) && ccIds.has(o.centroCustoId))
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 }
 
 /**
@@ -508,33 +521,23 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
             if (rateiosGravados.length > 0) {
               setRateios(
                 rateiosGravados.map((r) => {
-                  const cc = ccTodos.find((c) => c.id === r.centroCustoId) || ccList.find((c) => c.id === r.centroCustoId);
+                  /*
+                   * A obra é o orçamento, e o orçamento vem do ITEM gravado —
+                   * é o único vínculo que o banco guarda.
+                   *
+                   * Rateio antigo sem item não tem como dizer de qual obra era:
+                   * o campo abre vazio e a pendência cobra o preenchimento.
+                   * Chutar a obra a partir do centro de custo seria pior — o
+                   * mesmo centro de custo carrega várias obras, que é a razão
+                   * de toda esta mudança.
+                   */
                   const orcDoItem = r.orcamentoItemId
                     ? orcList.find((o) => o.itens.some((i) => i.id === r.orcamentoItemId))
                     : undefined;
 
-                  const obraId =
-                    r.obraId ||
-                    (cc?.parentId ? cc.parentId : (orcDoItem?.centroCustoId || cc?.id || r.centroCustoId));
-                  const unidadeId = r.centroCustoId;
-
-                  /*
-                   * O orçamento não é gravado: quem o define é o item. Sem item
-                   * gravado (apropriação anterior à coluna), só pré-seleciona
-                   * quando a obra tem uma planilha só — com várias, a escolha
-                   * volta a ser do usuário em vez de ser chutada na abertura.
-                   *
-                   * Usa a MESMA função do combo: uma regra própria aqui deixava
-                   * o campo vazio para obra cujo orçamento mora na unidade.
-                   */
-                  const vivosDaObra = orcamentosVivosDaObra(orcList, ccTodos, obraId);
-                  const orcamentoId =
-                    orcDoItem?.id || (vivosDaObra.length === 1 ? vivosDaObra[0].id : '');
-
                   return {
-                    obraId,
-                    unidadeId,
-                    orcamentoId,
+                    orcamentoId: orcDoItem?.id || '',
+                    unidadeId: r.centroCustoId,
                     orcamentoItemId: r.orcamentoItemId,
                     percentualStr: r.percentual.toFixed(2).replace('.', ','),
                     valorReais: formatCentavos(
@@ -794,83 +797,78 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
     );
   }, [valorLiquidoCentavos]);
 
+  /** As linhas de gestão alocadas na aba anterior — é o que filtra as obras. */
+  const linhasAlocadas = useMemo(
+    () => rateiosGestao.map((r) => r.linhaGestaoId).filter((id): id is string => !!id),
+    [rateiosGestao]
+  );
+
   /**
-   * Obras que a Apropriação oferece: as das Linhas de Gestão alocadas na aba
-   * anterior.
+   * As obras que a Apropriação oferece — os ORÇAMENTOS das linhas alocadas.
    *
-   * É o elo entre as duas abas. Cada Linha de Gestão carrega uma obra vinculada
-   * no seu cadastro; alocar a linha no título é o que traz a obra para cá. Linha
-   * sem obra vinculada simplesmente não contribui com nenhuma opção.
+   * É o elo entre as duas abas: a linha de gestão reúne centros de custo, e os
+   * orçamentos deles são as obras. Antes cada linha carregava UMA obra no
+   * próprio cadastro (`linha_gestao.centro_custo_id`), o que limitava a uma obra
+   * por linha; agora o vínculo mora no centro de custo e várias obras cabem na
+   * mesma linha.
    */
   const obrasDisponiveis = useMemo(() => {
-    const idsObras = new Set(
-      rateiosGestao
-        .map((r) => linhasGestao.find((l) => l.id === r.linhaGestaoId)?.centroCustoId)
-        .filter((id): id is string => !!id)
-    );
+    const lista = obrasDasLinhasGestao(orcamentos, centroCustosTodos, linhasAlocadas);
 
     /*
-     * A obra já gravada no título entra na lista mesmo que a linha de gestão
-     * dela não tenha mais vínculo com obra.
-     *
-     * Sem isto, abrir um título antigo mostrava o combo de Obra em branco: o
-     * valor gravado não estava entre as opções, o campo parecia vazio, a
-     * checagem de pendência (que olha `r.obraId`, preenchido) não reclamava, e
-     * salvar de novo regravava a apropriação com a obra perdida.
+     * A obra já apropriada no título entra na lista mesmo que hoje não pertença
+     * mais a nenhuma linha alocada — planilha encerrada, ou centro de custo que
+     * mudou de linha. Sem isto o combo abriria vazio num título gravado, e
+     * salvar de novo regravaria a apropriação sem a obra.
      */
+    // O Set cresce enquanto acumula: duas linhas na MESMA obra fora da lista
+    // acrescentariam a opção duas vezes, com chave de React repetida.
+    const jaNaLista = new Set(lista.map((o) => o.id));
+    const extras: Orcamento[] = [];
     for (const r of rateios) {
-      if (r.obraId) idsObras.add(r.obraId);
+      if (!r.orcamentoId || jaNaLista.has(r.orcamentoId)) continue;
+      const orc = orcamentos.find((o) => o.id === r.orcamentoId);
+      if (!orc) continue;
+      jaNaLista.add(orc.id);
+      extras.push(orc);
     }
 
-    const filtradas = centroCustosTodos.filter((c) => idsObras.has(c.id));
-    if (filtradas.length > 0) return filtradas;
-    return centroCustosTodos.filter((c) => !c.parentId);
-  }, [rateiosGestao, linhasGestao, centroCustosTodos, rateios]);
+    return [...lista, ...extras];
+  }, [orcamentos, centroCustosTodos, linhasAlocadas, rateios]);
 
-  const unidadesDaObra = (obraId: string) => unidadesDaObraEm(centroCustosTodos, obraId);
-
-  /**
-   * As planilhas orçamentárias que a obra oferece.
-   *
-   * Uma obra pode ter vários orçamentos vivos ao mesmo tempo — obras paralelas
-   * no mesmo centro de custo, não revisões uma da outra. Isto aqui devolvia
-   * um só (aprovado ganha, empate no `versao` maior), e o efeito era pior do que
-   * escolher errado: os itens dos demais orçamentos não apareciam no combo, e
-   * um título já apropriado neles não podia mais ser reproduzido pela tela.
-   */
-  const orcamentosDaObra = (obraId: string): Orcamento[] =>
-    orcamentosVivosDaObra(orcamentos, centroCustosTodos, obraId);
-
-  /**
-   * O orçamento da obra quando só existe um — o caso comum, em que perguntar
-   * seria burocracia. Com dois ou mais devolve `null` de propósito: a escolha é
-   * do usuário, e chutar uma planilha esconderia a decisão dentro do rateio.
-   */
-  const orcamentoUnicoDaObra = (obraId: string): Orcamento | null => {
-    const lista = orcamentosDaObra(obraId);
-    return lista.length === 1 ? lista[0] : null;
+  /** O centro de custo que contém a obra — o "denominador" que a agrupa. */
+  const centroCustoDaObra = (orcamentoId: string): CentroCusto | null => {
+    const orc = orcamentos.find((o) => o.id === orcamentoId);
+    if (!orc) return null;
+    return centroCustosTodos.find((c) => c.id === orc.centroCustoId) || null;
   };
 
   /**
-   * Itens oferecidos para (obra, unidade, orçamento).
+   * Unidades Construtivas da obra: os filhos do centro de custo dela, ou o
+   * próprio centro de custo quando a árvore ainda não foi detalhada.
+   */
+  const unidadesDaObra = (orcamentoId: string): CentroCusto[] => {
+    const cc = centroCustoDaObra(orcamentoId);
+    return cc ? unidadesDaObraEm(centroCustosTodos, cc.id) : [];
+  };
+
+  /**
+   * Itens oferecidos para (obra, unidade).
    *
    * Item sem unidade construtiva vale para a obra inteira; item com unidade só
-   * aparece na sua. Sem orçamento escolhido não há item para oferecer — o combo
-   * fica vazio e a coluna Orçamento é quem cobra a escolha.
+   * aparece na sua.
    */
   const itensDaUnidade = (
-    obraId: string,
+    orcamentoId: string,
     unidadeId: string,
-    orcamentoId?: string,
     currentItemId?: string
   ): OrcamentoItem[] => {
-    const daObra = orcamentosDaObra(obraId);
-    let orc = orcamentoId ? daObra.find((o) => o.id === orcamentoId) || null : null;
+    let orc = orcamentoId ? orcamentos.find((o) => o.id === orcamentoId) || null : null;
 
     /*
      * O item já gravado manda mais que a escolha da tela: sem isto, reabrir um
-     * título cujo orçamento saiu da lista (encerrado, ou de outra obra) mostrava
-     * o campo em branco e a regravação perdia a apropriação em silêncio.
+     * título cuja obra saiu da lista (planilha encerrada) mostrava o campo em
+     * branco e a regravação perdia a apropriação em silêncio.
      */
     if (!orc && currentItemId) {
       orc = orcamentos.find((o) => o.itens.some((i) => i.id === currentItemId)) || null;
@@ -906,17 +904,22 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
     itemId ? orcamentos.find((o) => o.itens.some((i) => i.id === itemId)) || null : null;
 
   /**
-   * Rótulo do orçamento nos combos.
+   * Rótulo da obra no combo — lembrando que a obra É o orçamento.
    *
-   * O `v{n}` só aparece quando a planilha é revisão de outra. Sem isso, o
-   * segundo orçamento de uma obra — que nasce "v2" só porque o número é
-   * sequencial por centro de custo — é lido como "revisão 2" de algo que ele
-   * não revisa.
+   * Leva o centro de custo junto porque ele é o denominador que agrupa as obras,
+   * e duas obras de linhas diferentes podem ter nome parecido; sem ele, "CALÇADA"
+   * de um centro de custo é indistinguível da "CALÇADA" de outro.
+   *
+   * O `v{n}` só aparece quando a planilha é revisão de outra. Sem isso, a segunda
+   * obra de um centro de custo — que nasce "v2" só porque o número é sequencial
+   * por centro de custo — seria lida como "revisão 2" de algo que ela não revisa.
    */
-  const rotuloOrcamento = (o: Orcamento) => {
+  const rotuloObra = (o: Orcamento) => {
+    const cc = centroCustosTodos.find((c) => c.id === o.centroCustoId);
+    const denominador = cc ? ` · ${cc.codigo}` : '';
     const revisao = o.orcamentoBaseId ? ` (v${o.versao})` : '';
-    const aprovado = o.status === 'aprovado' ? '' : ` [${o.status}]`;
-    return `${o.nome}${revisao}${aprovado}`;
+    const situacao = o.status === 'aprovado' ? '' : ` [${o.status}]`;
+    return `${o.nome.trim()}${denominador}${revisao}${situacao}`;
   };
 
   const rotuloItemOrcamento = (i: OrcamentoItem) => {
@@ -948,13 +951,7 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
   })();
 
   /** Primeira unidade da obra — o destino padrão ao criar/trocar uma linha. */
-  const unidadePadrao = (obraId: string) => unidadesDaObra(obraId)[0]?.id || '';
-
-  /**
-   * Orçamento padrão da obra: o único, quando é único. Com vários, vazio — pelo
-   * mesmo motivo que a obra não é chutada quando há mais de uma.
-   */
-  const orcamentoPadrao = (obraId: string) => orcamentoUnicoDaObra(obraId)?.id || '';
+  const unidadePadrao = (orcamentoId: string) => unidadesDaObra(orcamentoId)[0]?.id || '';
 
   const handleAddRateio = () => {
     if (obrasDisponiveis.length === 0) return;
@@ -964,14 +961,13 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
 
     // Só pré-seleciona a obra quando há uma única possibilidade: com várias, a
     // escolha é do usuário — chutar uma esconderia a decisão dentro do rateio.
-    const obraId = obrasDisponiveis.length === 1 ? obrasDisponiveis[0].id : '';
+    const orcamentoId = obrasDisponiveis.length === 1 ? obrasDisponiveis[0].id : '';
 
     setRateios((prev) => [
       ...prev,
       {
-        obraId,
-        unidadeId: obraId ? unidadePadrao(obraId) : '',
-        orcamentoId: obraId ? orcamentoPadrao(obraId) : '',
+        orcamentoId,
+        unidadeId: orcamentoId ? unidadePadrao(orcamentoId) : '',
         orcamentoItemId: undefined,
         percentualStr: percStr,
         valorReais: valStr,
@@ -986,17 +982,16 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
 
   const handleRateioChange = (
     idx: number,
-    campo: 'obraId' | 'unidadeId' | 'orcamentoId' | 'orcamentoItemId',
+    campo: 'orcamentoId' | 'unidadeId' | 'orcamentoItemId',
     valor: string
   ) => {
     setRateios((prev) => {
       const copy = [...prev];
       const item: ItemRateioState = { ...copy[idx], [campo]: valor };
 
-      if (campo === 'obraId') {
-        // Trocou a obra: unidade, orçamento e item da obra anterior não valem mais.
-        item.unidadeId = unidadePadrao(valor);
-        item.orcamentoId = orcamentoPadrao(valor);
+      if (campo === 'orcamentoId') {
+        // Trocou a obra: unidade e item da obra anterior não valem mais.
+        item.unidadeId = valor ? unidadePadrao(valor) : '';
         item.orcamentoItemId = undefined;
       } else if (campo === 'unidadeId') {
         /*
@@ -1004,14 +999,10 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
          * a obra inteira e sobrevivem à troca — por isso a checagem consulta a
          * lista da unidade nova em vez de limpar sempre.
          */
-        const aindaVale = itensDaUnidade(item.obraId, valor, item.orcamentoId, item.orcamentoItemId).some(
+        const aindaVale = itensDaUnidade(item.orcamentoId, valor, item.orcamentoItemId).some(
           (i) => i.id === item.orcamentoItemId
         );
         if (!aindaVale) item.orcamentoItemId = undefined;
-      } else if (campo === 'orcamentoId') {
-        // Trocou de planilha: o item da anterior não existe nesta.
-        item.orcamentoId = valor || undefined;
-        item.orcamentoItemId = undefined;
       } else if (campo === 'orcamentoItemId') {
         item.orcamentoItemId = valor || undefined;
       }
@@ -1027,9 +1018,8 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
     if (!obra) return;
     setRateios([
       {
-        obraId: obra.id,
+        orcamentoId: obra.id,
         unidadeId: unidadePadrao(obra.id),
-        orcamentoId: orcamentoPadrao(obra.id),
         orcamentoItemId: undefined,
         percentualStr: '100,00',
         valorReais: formatCentavos(valorLiquidoCentavos),
@@ -1164,34 +1154,24 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
     const apropPend: string[] = [];
     if (rateios.length > 0 && !isRateioValido)
       apropPend.push('A apropriação por obra deve somar 100,00%.');
-    // Sem unidade construtiva o rateio iria para o banco com o destino em branco.
-    if (rateios.some((r) => !r.obraId))
+    /*
+     * A obra é a primeira escolha e destrava as outras duas. Título antigo,
+     * gravado sem item de orçamento, reabre exatamente aqui: não há como deduzir
+     * de qual obra ele era, então o campo vem vazio e esta pendência cobra.
+     */
+    if (rateios.some((r) => !r.orcamentoId))
       apropPend.push('Há linha de apropriação sem obra informada.');
-    if (rateios.some((r) => r.obraId && !r.unidadeId))
+    // Sem unidade construtiva o rateio iria para o banco com o destino em branco.
+    if (rateios.some((r) => r.orcamentoId && !r.unidadeId))
       apropPend.push('Há linha de apropriação sem unidade construtiva informada.');
     /*
-     * Orçamento é exigido sempre que a obra tem alguma planilha — não só quando
-     * tem várias. Com a checagem em "mais de uma", esvaziar o combo numa obra de
-     * orçamento único desligava as DUAS cobranças: esta não disparava, e a de
-     * item também não, porque sem orçamento a lista de itens vem vazia. O título
-     * salvava sem item nenhum, que sob esta mudança é não consumir orçamento.
-     *
-     * Vem ANTES da pendência de item: sem orçamento escolhido o combo de item
-     * está legitimamente vazio, e cobrar "sem item" mandaria o usuário para um
-     * campo que ele não tem como preencher.
-     */
-    if (rateios.some((r) => r.obraId && !r.orcamentoId && orcamentosDaObra(r.obraId).length > 0))
-      apropPend.push('Há linha de apropriação sem orçamento informado.');
-    /*
-     * Item de orçamento só é exigido onde existe orçamento para escolher. Exigir
-     * sempre travaria o lançamento em obra que ainda não teve planilha
-     * cadastrada; não exigir nunca deixaria passar em branco justamente onde o
-     * orçamento existe — que é o ponto da aba.
+     * Item de orçamento só é exigido onde existe item para escolher. Exigir
+     * sempre travaria o lançamento em obra cuja planilha ainda está vazia; não
+     * exigir nunca deixaria passar em branco justamente onde o orçamento existe
+     * — que é o ponto da aba.
      */
     if (
-      rateios.some(
-        (r) => !r.orcamentoItemId && itensDaUnidade(r.obraId, r.unidadeId, r.orcamentoId).length > 0
-      )
+      rateios.some((r) => !r.orcamentoItemId && itensDaUnidade(r.orcamentoId, r.unidadeId).length > 0)
     )
       apropPend.push('Há linha de apropriação sem item de orçamento informado.');
     if (temAlgumEstouro && !confirmarEstouroCheck)
@@ -1363,8 +1343,7 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
       onSelect: (i) => {
         if (rateioLookupIndex === null) return;
         const copy = [...rateios];
-        const obraId = centroCustosTodos.find((cc) => cc.id === i.id)?.parentId || '';
-        copy[rateioLookupIndex] = { ...copy[rateioLookupIndex], obraId, unidadeId: i.id };
+        copy[rateioLookupIndex] = { ...copy[rateioLookupIndex], unidadeId: i.id };
         setRateios(copy);
       },
     },
@@ -1373,16 +1352,14 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
      *
      * Antes ela listava TODOS os itens de TODOS os orçamentos e escrevia direto
      * no rateio: dava para apropriar num item de outra obra, furando o filtro de
-     * obra/unidade/orçamento sem nenhum aviso. E a coluna extra mostrava o nome
-     * da obra, que é igual em todos os orçamentos dela — inútil justamente onde
-     * a distinção importa. Agora mostra a planilha.
+     * obra e unidade sem nenhum aviso.
      */
     itemorcamento: {
       title: 'Itens de orçamento',
       items: (() => {
         const linha = rateioLookupIndex !== null ? rateios[rateioLookupIndex] : null;
         const disponiveis = linha
-          ? itensDaUnidade(linha.obraId, linha.unidadeId, linha.orcamentoId, linha.orcamentoItemId)
+          ? itensDaUnidade(linha.orcamentoId, linha.unidadeId, linha.orcamentoItemId)
           : [];
         return disponiveis.map((i) => ({
           id: i.id,
@@ -1391,13 +1368,13 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
           extra: orcamentoDoItem(i.id)?.nome || '',
         }));
       })(),
-      extraHeader: 'Orçamento',
+      extraHeader: 'Obra',
       onSelect: (i) => {
         if (rateioLookupIndex === null) return;
         const copy = [...rateios];
         copy[rateioLookupIndex] = {
           ...copy[rateioLookupIndex],
-          // Mantém a coluna Orçamento coerente com o item escolhido.
+          // A obra É o orçamento do item: mantém as duas colunas coerentes.
           orcamentoId: orcamentoDoItem(i.id)?.id || copy[rateioLookupIndex].orcamentoId,
           orcamentoItemId: i.id,
         };
@@ -1416,16 +1393,32 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
 
   /* ---------------- cascata da hierarquia ---------------- */
 
-  /** A obra escolhida no cadastro vira a apropriação padrão: uma linha, 100%. */
+  /**
+   * O centro de custo do cadastro vira a unidade da apropriação padrão.
+   *
+   * A OBRA não é derivada daqui: obra passou a ser o orçamento, e o mesmo centro
+   * de custo carrega várias. Só a Linha de Gestão alocada diz quais estão em
+   * jogo, então a obra fica em branco esperando a escolha — a menos que exista
+   * uma só, e aí o `handleAddRateio` já a pré-seleciona.
+   */
   const handleCentroCustoTituloChange = (novoCcId: string) => {
     setCentroCustoTituloId(novoCcId);
-    const no = centroCustosTodos.find((c) => c.id === novoCcId);
-    const obraId = no?.parentId || novoCcId;
+    const obraUnica = obrasDisponiveis.length === 1 ? obrasDisponiveis[0].id : '';
+
+    /*
+     * A unidade só é aproveitada se pertencer à obra escolhida. Emparelhar as
+     * duas às cegas gravava uma apropriação cujo centro de custo fica FORA do
+     * orçamento que ela consome: o combo de unidade renderizava em branco (o CC
+     * não está na árvore da obra) mas a pendência passava, porque `unidadeId`
+     * estava preenchido.
+     */
+    const unidadeVale =
+      obraUnica && unidadesDaObra(obraUnica).some((u) => u.id === novoCcId);
+
     setRateios([
       {
-        obraId,
-        unidadeId: novoCcId,
-        orcamentoId: orcamentoPadrao(obraId),
+        orcamentoId: obraUnica,
+        unidadeId: unidadeVale ? novoCcId : obraUnica ? unidadePadrao(obraUnica) : '',
         orcamentoItemId: undefined,
         percentualStr: '100,00',
         valorReais: formatCentavos(valorLiquidoCentavos),
@@ -1474,9 +1467,14 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
       const rateiosFinal =
         rateios.length > 0
           ? rateios.map((r) => ({
-              // A Unidade Construtiva é o destino gravado; no domínio/banco o
-              // campo continua se chamando centroCustoId / centro_custo_id.
-              centroCustoId: r.unidadeId || r.obraId || defaultCcId,
+              /*
+               * A Unidade Construtiva é o destino gravado; no domínio/banco o
+               * campo continua se chamando centroCustoId / centro_custo_id.
+               * Sem unidade, cai no centro de custo da obra — que é o que
+               * `unidadePadrao` já teria escolhido — e só então no do cadastro.
+               */
+              centroCustoId:
+                r.unidadeId || centroCustoDaObra(r.orcamentoId)?.id || defaultCcId,
               orcamentoItemId: r.orcamentoItemId || undefined,
               // O repositório prefere o plano do item de orçamento; este aqui é
               // só o fallback de quem apropriou em obra ainda sem planilha.
@@ -2245,11 +2243,21 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
                 <div className="mb-3 flex items-start gap-2 border border-amber-300 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                   <span>
-                    <strong>Nenhuma obra disponível.</strong> As obras desta aba vêm das Linhas de
-                    Gestão alocadas em <strong>Alocação de Títulos</strong>: cada linha carrega uma
-                    obra vinculada no seu cadastro. Aloque uma linha de gestão que tenha obra, ou
-                    vincule a obra em <strong>Cadastros → Linhas de Gestão</strong>. Enquanto isso, o
-                    título é lançado em &quot;Não alocado&quot;.
+                    <strong>Nenhuma obra disponível.</strong>{' '}
+                    {linhasAlocadas.length === 0 ? (
+                      <>
+                        As obras desta aba vêm da Linha de Gestão escolhida em{' '}
+                        <strong>Alocação de Títulos</strong>. Aloque uma linha para ver as obras dela
+                        aqui.
+                      </>
+                    ) : (
+                      <>
+                        A Linha de Gestão alocada não tem nenhuma obra com orçamento. Vincule os
+                        centros de custo a esta linha em <strong>Cadastros → Centro de Custos</strong>{' '}
+                        e cadastre a planilha da obra em <strong>Financeiro → Orçamento de Obra</strong>.
+                      </>
+                    )}{' '}
+                    Enquanto isso, o título é lançado em &quot;Não alocado&quot;.
                   </span>
                 </div>
               )}
@@ -2302,9 +2310,6 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
                         Unidade Construtiva
                       </th>
                       <th className="px-2 py-1.5 text-left font-semibold border-b border-erp-rule">
-                        Orçamento
-                      </th>
-                      <th className="px-2 py-1.5 text-left font-semibold border-b border-erp-rule">
                         Item Orçamento
                       </th>
                       <th className="px-2 py-1.5 text-right font-semibold border-b border-erp-rule w-[100px]">
@@ -2319,45 +2324,54 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
                   <tbody>
                     {rateios.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="px-3 py-6 text-center text-erp-label">
+                        <td colSpan={6} className="px-3 py-6 text-center text-erp-label">
                           Nenhuma apropriação informada — o título será alocado em “Não alocado”.
                         </td>
                       </tr>
                     ) : (
                       rateios.map((r, idx) => {
-                        const unidades = unidadesDaObra(r.obraId);
-                        const orcamentosObra = orcamentosDaObra(r.obraId);
+                        const unidades = unidadesDaObra(r.orcamentoId);
+                        const ccDaObra = centroCustoDaObra(r.orcamentoId);
                         /*
-                         * Orçamento já apontado que não está mais entre os
-                         * oferecidos — encerrado depois do lançamento, ou de
-                         * outra obra. Sem mostrá-lo, o combo aparecia em branco
-                         * ao lado de um Item preenchido e o primeiro toque
-                         * apagava o item gravado. Entra como opção DESABILITADA:
-                         * exibe o que está gravado sem virar destino de uma
-                         * apropriação nova.
+                         * Obra já apontada que não está mais entre as oferecidas
+                         * — planilha encerrada depois do lançamento, ou centro
+                         * de custo que mudou de linha de gestão. Sem mostrá-la,
+                         * o combo aparecia em branco ao lado de um Item
+                         * preenchido e o primeiro toque apagava o item gravado.
+                         * Entra como opção DESABILITADA: exibe o que está
+                         * gravado sem virar destino de apropriação nova.
                          */
-                        const orcDaLinha = orcamentoDoItem(r.orcamentoItemId) ||
-                          orcamentos.find((o) => o.id === r.orcamentoId) || null;
-                        const orcForaDaLista =
-                          orcDaLinha && !orcamentosObra.some((o) => o.id === orcDaLinha.id) ? orcDaLinha : null;
-                        const itens = itensDaUnidade(r.obraId, r.unidadeId, r.orcamentoId, r.orcamentoItemId);
-                        const temOrcamento = orcamentosObra.length > 0 || !!orcForaDaLista;
+                        const obraDaLinha =
+                          orcamentoDoItem(r.orcamentoItemId) ||
+                          orcamentos.find((o) => o.id === r.orcamentoId) ||
+                          null;
+                        const obraForaDaLista =
+                          obraDaLinha && !obrasDisponiveis.some((o) => o.id === obraDaLinha.id)
+                            ? obraDaLinha
+                            : null;
+                        const itens = itensDaUnidade(r.orcamentoId, r.unidadeId, r.orcamentoItemId);
 
                         return (
                           <tr key={idx}>
-                            {/* 1. Nome da Obra */}
+                            {/* 1. Nome da Obra — é o ORÇAMENTO */}
                             <td className="px-2 py-1 border-b border-erp-rule">
                               <select
-                                value={r.obraId}
-                                onChange={(e) => handleRateioChange(idx, 'obraId', e.target.value)}
+                                value={r.orcamentoId}
+                                onChange={(e) => handleRateioChange(idx, 'orcamentoId', e.target.value)}
+                                title={ccDaObra ? `Centro de custo: ${ccDaObra.codigo} ${ccDaObra.nome}` : undefined}
                                 className={`${erpField} w-full`}
                               >
                                 <option value="">Selecione a Obra...</option>
-                                {obrasDisponiveis.map((c) => (
-                                  <option key={c.id} value={c.id}>
-                                    {c.codigo} - {c.nome}
+                                {obrasDisponiveis.map((o) => (
+                                  <option key={o.id} value={o.id}>
+                                    {rotuloObra(o)}
                                   </option>
                                 ))}
+                                {obraForaDaLista && (
+                                  <option key={obraForaDaLista.id} value={obraForaDaLista.id} disabled>
+                                    {rotuloObra(obraForaDaLista)}
+                                  </option>
+                                )}
                               </select>
                             </td>
 
@@ -2365,12 +2379,12 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
                             <td className="px-2 py-1 border-b border-erp-rule">
                               <select
                                 value={r.unidadeId}
-                                disabled={!r.obraId}
+                                disabled={!r.orcamentoId}
                                 onChange={(e) => handleRateioChange(idx, 'unidadeId', e.target.value)}
                                 className={`${erpField} w-full disabled:opacity-50`}
                               >
                                 <option value="">
-                                  {r.obraId ? 'Selecione a Unidade...' : 'Escolha a obra antes'}
+                                  {r.orcamentoId ? 'Selecione a Unidade...' : 'Escolha a obra antes'}
                                 </option>
                                 {/* Obra sem unidades cadastradas aparece aqui como a
                                     própria opção: é ela que recebe o lançamento. */}
@@ -2382,66 +2396,27 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
                               </select>
                             </td>
 
-                            {/* 3. Orçamento — qual planilha da obra está sendo consumida */}
+                            {/* 3. Item Orçamento */}
                             <td className="px-2 py-1 border-b border-erp-rule">
                               <select
-                                value={r.orcamentoId ?? ''}
-                                disabled={!r.obraId || orcamentosObra.length === 0}
-                                onChange={(e) => handleRateioChange(idx, 'orcamentoId', e.target.value)}
+                                value={r.orcamentoItemId ?? ''}
+                                disabled={!r.unidadeId || itens.length === 0}
+                                onChange={(e) => handleRateioChange(idx, 'orcamentoItemId', e.target.value)}
                                 title={
-                                  orcamentosObra.length > 1
-                                    ? 'Esta obra tem mais de uma planilha orçamentária. Escolha contra qual delas o valor será apropriado.'
+                                  r.unidadeId && itens.length === 0
+                                    ? 'Esta obra não tem itens de orçamento para esta unidade construtiva.'
                                     : undefined
                                 }
                                 className={`${erpField} w-full disabled:opacity-50`}
                               >
                                 <option value="">
-                                  {!r.obraId
+                                  {!r.orcamentoId
                                     ? 'Escolha a obra antes'
-                                    : !temOrcamento
-                                      ? 'Obra sem orçamento cadastrado'
-                                      : 'Selecione o Orçamento...'}
-                                </option>
-                                {orcamentosObra.map((o) => (
-                                  <option key={o.id} value={o.id}>
-                                    {rotuloOrcamento(o)}
-                                  </option>
-                                ))}
-                                {orcForaDaLista && (
-                                  <option key={orcForaDaLista.id} value={orcForaDaLista.id} disabled>
-                                    {rotuloOrcamento(orcForaDaLista)}
-                                  </option>
-                                )}
-                              </select>
-                            </td>
-
-                            {/* 4. Item Orçamento */}
-                            <td className="px-2 py-1 border-b border-erp-rule">
-                              <select
-                                value={r.orcamentoItemId ?? ''}
-                                disabled={!r.unidadeId || !r.orcamentoId || itens.length === 0}
-                                onChange={(e) => handleRateioChange(idx, 'orcamentoItemId', e.target.value)}
-                                title={
-                                  r.unidadeId && r.orcamentoId && itens.length === 0
-                                    ? 'Este orçamento não tem itens para esta unidade construtiva.'
-                                    : r.unidadeId && !r.orcamentoId && temOrcamento
-                                      ? 'Escolha primeiro o orçamento: cada planilha tem os seus itens.'
-                                      : r.unidadeId && !temOrcamento
-                                        ? 'Esta obra ainda não tem orçamento cadastrado. Cadastre em Financeiro → Orçamentos.'
-                                        : undefined
-                                }
-                                className={`${erpField} w-full disabled:opacity-50`}
-                              >
-                                <option value="">
-                                  {!r.unidadeId
-                                    ? 'Escolha a unidade antes'
-                                    : !temOrcamento
-                                      ? 'Obra sem orçamento cadastrado'
-                                      : !r.orcamentoId
-                                        ? 'Escolha o orçamento antes'
-                                        : itens.length === 0
-                                          ? 'Sem itens para esta unidade'
-                                          : 'Selecione o Item...'}
+                                    : !r.unidadeId
+                                      ? 'Escolha a unidade antes'
+                                      : itens.length === 0
+                                        ? 'Sem itens para esta unidade'
+                                        : 'Selecione o Item...'}
                                 </option>
                                 {itens.map((i) => (
                                   <option key={i.id} value={i.id}>
