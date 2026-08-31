@@ -22,7 +22,7 @@ function RotuloSecao({ children, isCollapsed }: { children?: React.ReactNode; is
     return <div className="my-2 border-t border-white/10" />;
   }
   return (
-    <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35">
+    <p className="px-4 mb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-white/40">
       {children}
     </p>
   );
@@ -54,19 +54,26 @@ function SecaoRecolhivel({
         type="button"
         onClick={onAlternar}
         aria-expanded={aberta}
-        className="flex w-full items-center gap-1.5 px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35 transition-colors hover:text-white/70"
+        className="group/sec flex w-full items-center gap-1.5 px-4 mb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-white/40 transition-colors hover:text-white/70"
       >
-        <ChevronDown
-          className={`h-3 w-3 shrink-0 transition-transform duration-200 ${aberta ? '' : '-rotate-90'}`}
-        />
         <span className="truncate">{titulo}</span>
+        {/*
+          O chevron fica à direita e apagado: a referência de design não tem
+          controle de recolher, mas a seção continua recolhível — some do
+          caminho sem sumir de quem procura.
+        */}
+        <ChevronDown
+          className={`h-3 w-3 shrink-0 opacity-0 transition-all duration-200 group-hover/sec:opacity-60 ${
+            aberta ? '' : 'opacity-60 -rotate-90'
+          }`}
+        />
         {!aberta && (
-          <span className="ml-auto rounded bg-white/[0.08] px-1.5 py-0.5 text-[9px] tracking-normal text-white/45">
+          <span className="ml-auto rounded-full bg-white/[0.08] px-2 py-0.5 text-[9px] tracking-normal text-white/45">
             {quantidade}
           </span>
         )}
       </button>
-      {aberta && <div className="space-y-0.5">{children}</div>}
+      {aberta && <div className="space-y-1">{children}</div>}
     </div>
   );
 }
@@ -96,16 +103,16 @@ function ItemNav({
       title={isCollapsed ? label : undefined}
       aria-current={ativo ? 'page' : undefined}
       className={`group flex items-center ${
-        isCollapsed ? 'justify-center py-2.5 px-0' : `gap-3 py-2 pl-3 ${podeFixar ? 'pr-9' : 'pr-2'} border-l-2`
-      } rounded-lg transition-all ${
+        isCollapsed ? 'justify-center py-2.5 px-0' : `gap-3.5 py-2.5 pl-4 ${podeFixar ? 'pr-9' : 'pr-3'}`
+      } rounded-full transition-all ${
         ativo
-          ? 'border-brand bg-white/[0.08] text-white font-semibold'
-          : 'border-transparent text-white/65 hover:bg-white/[0.04] hover:text-white'
+          ? 'bg-white/[0.10] text-white font-semibold'
+          : 'text-white/70 hover:bg-white/[0.05] hover:text-white'
       }`}
     >
       <Icon
         className={`h-[18px] w-[18px] shrink-0 transition-colors ${
-          ativo ? 'text-brand scale-105' : 'text-white/40 group-hover:text-white/70'
+          ativo ? 'text-brand' : 'text-white/50 group-hover:text-white/80'
         }`}
       />
       {!isCollapsed && <span className="truncate text-[13px] font-medium">{label}</span>}
@@ -162,8 +169,8 @@ function BotaoVoltar({ isCollapsed }: { isCollapsed?: boolean }) {
       onClick={() => router.push(destino)}
       title={isCollapsed ? 'Voltar página anterior' : undefined}
       className={`flex w-full items-center ${
-        isCollapsed ? 'justify-center py-2' : 'gap-2.5 px-3 py-2 text-[13px]'
-      } rounded-lg font-medium text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white`}
+        isCollapsed ? 'justify-center py-2' : 'gap-3.5 px-4 py-2.5 text-[13px]'
+      } rounded-full font-medium text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white`}
     >
       <ArrowLeft className="h-4 w-4 shrink-0 text-white/70" />
       {!isCollapsed && <span>Voltar página anterior</span>}
@@ -250,7 +257,7 @@ export function Sidebar() {
       </div>
 
       {/* ---------- Navegação (rola quando não cabe) ---------- */}
-      <nav className="flex-1 space-y-5 overflow-y-auto px-3 pb-4">
+      <nav className="flex-1 space-y-6 overflow-y-auto px-2 pb-4">
         <div>
           <RotuloSecao isCollapsed={isCollapsed}>Início</RotuloSecao>
           <ItemNav
@@ -264,7 +271,7 @@ export function Sidebar() {
         {itensFavoritos.length > 0 && (
           <div>
             <RotuloSecao isCollapsed={isCollapsed}>Favoritos</RotuloSecao>
-            <div className="space-y-0.5">
+            <div className="space-y-1">
               {itensFavoritos.map((item) => (
                 <ItemNav
                   key={`fav-${item.href}`}
@@ -299,7 +306,7 @@ export function Sidebar() {
             return (
               <div key={secao.id}>
                 <RotuloSecao isCollapsed />
-                <div className="space-y-0.5">{itens}</div>
+                <div className="space-y-1">{itens}</div>
               </div>
             );
           }
