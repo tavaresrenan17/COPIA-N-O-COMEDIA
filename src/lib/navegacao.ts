@@ -83,6 +83,7 @@ const TITULOS_DE_ROTA: Record<string, string> = {
   '/pessoas': 'Cadastro de Credores',
   '/relatorios/executivo': 'Dashboard Executivo',
   '/orcamentos/acompanhamento': 'Acompanhamento Orçamentário',
+  '/cadastros/organograma': 'Organograma da Gestão',
   '/cadastros/grupos-gestao': 'Grupos de Gestão',
   '/cadastros/linhas-gestao': 'Linhas de Gestão',
   '/contas-pagar/cadastro': 'Novo Título a Pagar',

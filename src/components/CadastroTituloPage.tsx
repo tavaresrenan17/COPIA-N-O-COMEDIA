@@ -205,8 +205,19 @@ function obrasDasLinhasGestao(
   if (linhaGestaoIds.length === 0) return [];
 
   const linhas = new Set(linhaGestaoIds);
+  /*
+   * Entram dois tipos de Grupo Macro:
+   * - os atrelados a uma das linhas alocadas;
+   * - os GLOBAIS, que acompanham qualquer linha — é o macro que não pertence a
+   *   uma linha só (administrativo, frota) e cujas obras podem ser apropriadas
+   *   venha o título de onde vier.
+   * Sem nenhuma linha alocada nada aparece, nem os globais: a Apropriação
+   * continua exigindo a aba anterior.
+   */
   const ccIds = new Set(
-    centroCustos.filter((c) => c.linhaGestaoId && linhas.has(c.linhaGestaoId)).map((c) => c.id)
+    centroCustos
+      .filter((c) => c.escopoGlobal || (c.linhasGestaoIds ?? []).some((l) => linhas.has(l)))
+      .map((c) => c.id)
   );
   if (ccIds.size === 0) return [];
 

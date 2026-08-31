@@ -36,18 +36,23 @@ export interface CentroCusto {
   codigo: string;
   nome: string;
   /**
-   * Linha de Gestão a que este centro de custo pertence.
+   * O centro de custo é o GRUPO MACRO que reúne obras, e o alcance dele tem
+   * duas formas.
    *
-   * É este vínculo que a Apropriação usa: alocar uma linha no título faz
-   * aparecer as obras (orçamentos) dos centros de custo dela. Antes o vínculo
-   * morava do outro lado, em `linha_gestao.centro_custo_id`, que é 1:1 — o
-   * segundo centro de custo ligado à mesma linha roubava o vínculo do primeiro.
-   * Opcional porque centro de custo sem linha continua válido; ele só não
-   * contribui com obra nenhuma para a Apropriação.
+   * `escopoGlobal`: as obras deste grupo aparecem na Apropriação junto com as
+   * de QUALQUER linha de gestão alocada — é o macro que não pertence a uma
+   * linha só.
+   *
+   * `linhasGestaoIds`: quando não é global, as obras só aparecem se uma destas
+   * linhas estiver alocada no título. Lista, e não um id: um mesmo grupo macro
+   * pode servir a duas ou três linhas específicas sem precisar abrir para todas.
+   *
+   * Antes disto o vínculo era 1:1 e morava em `linha_gestao.centro_custo_id` —
+   * ligar um segundo centro de custo à mesma linha roubava o vínculo do
+   * primeiro.
    */
-  linhaGestaoId?: string | null;
-  /** Só para exibir — não é gravado. */
-  linhaGestaoNome?: string;
+  escopoGlobal?: boolean;
+  linhasGestaoIds?: string[];
   parentId?: string | null;
   tipo: TipoCentroCusto;
   nivel: number;

@@ -32,6 +32,9 @@ export default function CentroCustosPage() {
   const [formTipo, setFormTipo] = useState<TipoCentroCusto>('obra');
   const [formGrupoGestaoId, setFormGrupoGestaoId] = useState<string>('');
   const [formLinhaGestaoId, setFormLinhaGestaoId] = useState<string>('');
+  /** Linhas de gestão do Grupo Macro. Vazio + global = vale para todas. */
+  const [formLinhasIds, setFormLinhasIds] = useState<string[]>([]);
+  const [formEscopoGlobal, setFormEscopoGlobal] = useState(false);
   const [formAceitaLancamento, setFormAceitaLancamento] = useState(true);
   const [formDataInicio, setFormDataInicio] = useState('');
   const [formDataFim, setFormDataFim] = useState('');
@@ -64,8 +67,9 @@ export default function CentroCustosPage() {
     while (atualId) {
       const centro = centrosTodos.find((c) => c.id === atualId);
       // O vínculo mora no centro de custo; a unidade construtiva herda o da obra.
-      if (centro?.linhaGestaoId) {
-        const linha = linhasGestao.find((l) => l.id === centro.linhaGestaoId);
+      const primeira = (centro?.linhasGestaoIds ?? [])[0];
+      if (primeira) {
+        const linha = linhasGestao.find((l) => l.id === primeira);
         if (linha) return linha;
       }
       atualId = centro?.parentId;
@@ -85,16 +89,21 @@ export default function CentroCustosPage() {
       if (linhaPai) {
         setFormGrupoGestaoId(linhaPai.grupoGestaoId);
         setFormLinhaGestaoId(linhaPai.id);
+        setFormLinhasIds([linhaPai.id]);
       } else {
         setFormGrupoGestaoId('');
         setFormLinhaGestaoId('');
+        setFormLinhasIds([]);
       }
+      setFormEscopoGlobal(false);
     } else {
       setFormParentId('');
       setFormCodigo(proximoCodigo(centrosTodos));
       setFormTipo('obra');
       setFormGrupoGestaoId('');
       setFormLinhaGestaoId('');
+      setFormLinhasIds([]);
+      setFormEscopoGlobal(false);
     }
     setFormNome('');
     setFormAceitaLancamento(true);
@@ -120,6 +129,9 @@ export default function CentroCustosPage() {
      * carregada aqui: sem isto o campo abria vazio ao editar e salvar apagava o
      * vínculo, já que o formulário grava o que está na tela.
      */
+    setFormLinhasIds(item.linhasGestaoIds ?? []);
+    setFormEscopoGlobal(!!item.escopoGlobal);
+
     const linhaVinculada = getLinhaVinculadaDoCentroOuAncestrais(item.id);
     if (linhaVinculada) {
       setFormGrupoGestaoId(linhaVinculada.grupoGestaoId);
@@ -179,14 +191,18 @@ export default function CentroCustosPage() {
       nivel,
       aceitaLancamento: formAceitaLancamento,
       /*
-       * Só o nó de topo guarda o vínculo. A unidade construtiva HERDA a linha da
-       * obra pela árvore (ver `obrasDasLinhasGestao`), então gravar uma cópia no
-       * filho só cria divergência: trocar a linha da obra depois deixaria o
-       * filho apontando para a linha antiga, e as obras dele apareceriam nas
-       * duas linhas ao mesmo tempo. O campo continua visível no formulário do
-       * filho, mostrando a linha herdada.
+       * Só o nó de topo guarda o vínculo. A unidade construtiva HERDA da obra
+       * pela árvore (ver `obrasDasLinhasGestao`), então gravar cópia no filho só
+       * cria divergência: trocar as linhas da obra depois deixaria o filho
+       * apontando para as antigas, e as obras dele apareceriam nas duas ao mesmo
+       * tempo. O campo continua visível no formulário do filho, em leitura.
+       *
+       * Global e lista são excludentes: marcado global, as linhas escolhidas
+       * deixam de importar e são limpas, para não ficar um resto invisível que
+       * volta a valer se alguém desmarcar o global depois.
        */
-      linhaGestaoId: formParentId ? null : formLinhaGestaoId || null,
+      escopoGlobal: formParentId ? false : formEscopoGlobal,
+      linhasGestaoIds: formParentId ? [] : formEscopoGlobal ? [] : formLinhasIds,
       dataInicio: formDataInicio || null,
       dataFim: formDataFim || null,
       ativo: true
@@ -279,7 +295,7 @@ export default function CentroCustosPage() {
       return cc.nome.toLowerCase().includes(searchTerm.toLowerCase()) || cc.codigo.includes(searchTerm);
     })
     .map((cc) => {
-      const linhaVinculada = linhasGestao.find((l) => l.id === cc.linhaGestaoId);
+      const linhaVinculada = linhasGestao.find((l) => (cc.linhasGestaoIds ?? []).includes(l.id));
 
       return {
         id: cc.id,
@@ -679,12 +695,19 @@ export default function CentroCustosPage() {
                         </label>
                         <select
                           value={formLinhaGestaoId}
-                          onChange={(e) => setFormLinhaGestaoId(e.target.value)}
-                          disabled={!formGrupoGestaoId}
+                          onChange={(e) => {
+                            const id = e.target.value;
+                            setFormLinhaGestaoId(id);
+                            // Escolher no combo ADICIONA à lista; a remoção é pelo X.
+                            if (id && !formLinhasIds.includes(id)) {
+                              setFormLinhasIds((prev) => [...prev, id]);
+                            }
+                          }}
+                          disabled={!formGrupoGestaoId || formEscopoGlobal || ehLinha}
                           className="w-full bg-white border border-black/10 rounded-xl px-3 py-2 text-xs text-ink-primary focus:outline-none focus:ring-2 focus:ring-brand disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           <option value="">
-                            {formGrupoGestaoId ? 'Selecione a Linha...' : 'Escolha um Grupo antes'}
+                            {formGrupoGestaoId ? 'Adicionar Linha...' : 'Escolha um Grupo antes'}
                           </option>
                           {linhasGestao
                             .filter((l) => l.ativo && l.grupoGestaoId === formGrupoGestaoId)
@@ -697,10 +720,59 @@ export default function CentroCustosPage() {
                       </div>
                     </div>
 
+                    {/* Alcance do Grupo Macro: global ou as linhas escolhidas. */}
+                    {!ehLinha && (
+                      <div className="space-y-2">
+                        <label className="flex items-start gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={formEscopoGlobal}
+                            onChange={(e) => setFormEscopoGlobal(e.target.checked)}
+                            className="mt-0.5 h-4 w-4 shrink-0 accent-brand"
+                          />
+                          <span className="text-[11px] text-ink-primary leading-relaxed">
+                            <strong>Grupo Macro global</strong> — as obras dele aparecem na
+                            Apropriação junto com as de qualquer Linha de Gestão alocada, sem ficar
+                            preso a uma linha só.
+                          </span>
+                        </label>
+
+                        {!formEscopoGlobal && formLinhasIds.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {formLinhasIds.map((id) => {
+                              const l = linhasGestao.find((x) => x.id === id);
+                              return (
+                                <span
+                                  key={id}
+                                  className="inline-flex items-center gap-1 rounded-lg border border-brand/30 bg-brand/10 px-2 py-1 text-[11px] font-semibold text-brand"
+                                >
+                                  {l ? `${l.codigo} - ${l.nome}` : id}
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setFormLinhasIds((prev) => prev.filter((x) => x !== id))
+                                    }
+                                    title="Remover esta linha"
+                                    className="text-brand/60 hover:text-brand"
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </button>
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     <p className="text-[11px] text-ink-muted leading-relaxed">
                       {ehLinha
-                        ? 'Esta Unidade Construtiva herda e segue a Linha de Gestão da Obra principal, garantindo que suas apropriações e lançamentos fiquem centralizados e consistentes no mesmo centro de custo.'
-                        : 'Vincular esta Obra a uma Linha de Gestão permite que, ao selecionar a Linha na Alocação de Gestão do título, esta Obra, suas Unidades Construtivas e Itens de Orçamento fiquem disponíveis para Apropriação.'}
+                        ? 'Esta Unidade Construtiva herda o alcance da Obra principal — o vínculo com as Linhas de Gestão é cadastrado na Obra, não aqui.'
+                        : formEscopoGlobal
+                          ? 'Como Grupo Macro global, as obras deste centro de custo ficam disponíveis para Apropriação sempre que QUALQUER Linha de Gestão for alocada no título.'
+                          : formLinhasIds.length === 0
+                            ? 'Sem linha escolhida e sem ser global, as obras deste centro de custo não aparecem na Apropriação de nenhum título.'
+                            : 'As obras deste centro de custo aparecem na Apropriação quando uma destas Linhas de Gestão for alocada no título.'}
                     </p>
                   </div>
                 </div>

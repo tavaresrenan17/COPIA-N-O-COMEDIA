@@ -1,3 +1,8 @@
+-- ⚠ SUPERADA PELA MIGRATION 11 — pode ser pulada.
+-- A 11 faz tudo isto e mais: o centro de custo passou a aceitar VÁRIAS linhas
+-- de gestão (ou ser global), e o vínculo mudou para a tabela de ligação
+-- `centro_custo_linha_gestao`. A 11 é auto-suficiente e faz o backfill
+-- funcionando com esta migration aplicada ou não. Mantida por histórico.
 -- =============================================================================
 -- MIGRATION 10: O CENTRO DE CUSTO PASSA A APONTAR PARA A LINHA DE GESTÃO
 -- =============================================================================

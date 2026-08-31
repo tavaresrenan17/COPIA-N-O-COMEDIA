@@ -150,7 +150,9 @@ export default function LinhasGestaoPage() {
 
   /** Centros de custo que apontam para a linha aberta no modal — só leitura. */
   const centrosDaLinha = linhaEditando
-    ? obras.filter((c) => c.linhaGestaoId === linhaEditando.id)
+    ? obras.filter(
+        (c) => c.escopoGlobal || (c.linhasGestaoIds ?? []).includes(linhaEditando.id)
+      )
     : [];
 
   const linhasFiltradas = linhas.filter((l) => {
@@ -263,7 +265,10 @@ export default function LinhasGestaoPage() {
                 linhasFiltradas.map((l) => {
                   const gPai = grupos.find((g) => g.id === l.grupoGestaoId);
                   const nomeGrupoPai = gPai ? `${gPai.codigo} - ${gPai.nome}` : (l.grupoGestaoNome || '—');
-                  const ccsDaLinha = obras.filter((c) => c.linhaGestaoId === l.id);
+                  // Global conta: a Apropriação oferece as obras dele em qualquer linha.
+                  const ccsDaLinha = obras.filter(
+                    (c) => c.escopoGlobal || (c.linhasGestaoIds ?? []).includes(l.id)
+                  );
                   const nomeObra =
                     ccsDaLinha.length === 0
                       ? ''
@@ -400,7 +405,8 @@ export default function LinhasGestaoPage() {
                 </div>
                 <p className="mt-1 text-[11px] text-slate-500 leading-relaxed">
                   As obras destes centros de custo são o que a aba <strong>Apropriação</strong>{' '}
-                  oferece quando esta linha é alocada num título. O vínculo é feito em{' '}
+                  oferece quando esta linha é alocada num título — incluindo os Grupos Macro
+                  <strong> globais</strong>, que acompanham qualquer linha. O vínculo é feito em{' '}
                   <strong>Cadastros → Centro de Custos</strong>, escolhendo a linha no cadastro do
                   centro de custo.
                 </p>

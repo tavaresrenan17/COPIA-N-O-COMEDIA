@@ -74,18 +74,18 @@ import {
  * no certo, e sem o `ref` na tela isso parece "a migration não pegou".
  */
 /**
- * O vínculo do centro de custo com a Linha de Gestão depende da migration 10.
+ * O escopo do centro de custo (global / linhas de gestão) depende da migration 11.
  *
- * Mesma regra do erro acima: campo PREENCHIDO com coluna ausente vira recusa,
- * nunca descarte silencioso. Sem isto, escolher a Linha e salvar devolvia
+ * Mesma regra do erro acima: campo PREENCHIDO com estrutura ausente vira recusa,
+ * nunca descarte silencioso. Sem isto, escolher as linhas e salvar devolvia
  * sucesso, perdia o vínculo, e a Apropriação depois mandava o usuário fazer
  * exatamente o que ele acabara de fazer.
  */
-function erroMigration10(): Error {
+function erroMigration11(oQue: string): Error {
   return new Error(
-    'O vínculo com a Linha de Gestão não pôde ser gravado: o banco em uso (projeto Supabase ' +
-    `"${supabaseProjectRef}") não tem a migration 10 ` +
-    '(supabase/migrations/10_centro_custo_linha_gestao.sql). ' +
+    `${oQue} não pôde ser gravado: o banco em uso (projeto Supabase ` +
+    `"${supabaseProjectRef}") não tem a migration 11 ` +
+    '(supabase/migrations/11_centro_custo_escopo.sql). ' +
     'Rode-a no Supabase → SQL Editor e tente de novo.'
   );
 }
@@ -520,6 +520,46 @@ export class SupabaseErpRepository implements IErpRepository {
   // ---------------------------------------------------------------------------
   // 3. CENTRO DE CUSTOS
   // ---------------------------------------------------------------------------
+  /**
+   * Linhas de gestão de cada centro de custo, numa consulta só.
+   *
+   * Vem da tabela de ligação da migration 11. Sem ela, devolve mapa vazio: o
+   * app continua de pé, a Apropriação é que não terá obra até a migration rodar.
+   */
+  private async linhasPorCentroCusto(centroCustoId?: string): Promise<Map<string, string[]>> {
+    const mapa = new Map<string, string[]>();
+
+    if (!(await this.temTabela('centro_custo_linha_gestao'))) {
+      /*
+       * Banco com a migration 10 mas sem a 11: o vínculo antigo (1:1) ainda é a
+       * verdade. Ler dele evita que os vínculos existentes SUMAM da tela nessa
+       * janela — a escrita já recusa alto, a leitura não pode mentir baixo.
+       */
+      if (await this.temColuna('centro_custo', 'linha_gestao_id')) {
+        let q = this.client!.from('centro_custo').select('id, linha_gestao_id').not('linha_gestao_id', 'is', null);
+        if (centroCustoId) q = q.eq('id', centroCustoId);
+        const { data: antigos } = await q;
+        for (const cc of (antigos ?? []) as any[]) mapa.set(cc.id, [cc.linha_gestao_id]);
+      }
+      return mapa;
+    }
+
+    // Sem paginação: são poucos vínculos por natureza (um punhado por obra).
+    // Se um dia passar de 1000 linhas, aqui precisa de range.
+    let query = this.client!
+      .from('centro_custo_linha_gestao')
+      .select('centro_custo_id, linha_gestao_id');
+    if (centroCustoId) query = query.eq('centro_custo_id', centroCustoId);
+    const { data } = await query;
+
+    for (const v of (data ?? []) as any[]) {
+      const atual = mapa.get(v.centro_custo_id) ?? [];
+      atual.push(v.linha_gestao_id);
+      mapa.set(v.centro_custo_id, atual);
+    }
+    return mapa;
+  }
+
   async getCentrosCusto(filtro?: { apenasAtivos?: boolean; subempresaId?: string }): Promise<CentroCusto[]> {
     if (!this.client) return this.fallbackMock.getCentrosCusto(filtro);
     const client = this.client;
@@ -529,6 +569,8 @@ export class SupabaseErpRepository implements IErpRepository {
     const { data } = await query.order('codigo');
     if (!data) return this.fallbackMock.getCentrosCusto(filtro);
 
+    const vinculos = await this.linhasPorCentroCusto();
+
     return data.map(cc => ({
       id: cc.id,
       codigo: cc.codigo,
@@ -537,7 +579,8 @@ export class SupabaseErpRepository implements IErpRepository {
       tipo: cc.tipo,
       nivel: cc.nivel,
       aceitaLancamento: cc.aceita_lancamento,
-      linhaGestaoId: cc.linha_gestao_id ?? null,
+      escopoGlobal: cc.escopo_global ?? false,
+      linhasGestaoIds: vinculos.get(cc.id) ?? [],
       dataInicio: cc.data_inicio,
       dataFim: cc.data_fim,
       ativo: cc.ativo,
@@ -554,6 +597,8 @@ export class SupabaseErpRepository implements IErpRepository {
     const { data } = await client.from('centro_custo').select('*').eq('aceita_lancamento', true).eq('ativo', true).order('codigo');
     if (!data) return this.fallbackMock.getCentroCustosFolhas(subempresaId);
 
+    const vinculos = await this.linhasPorCentroCusto();
+
     return data.map(cc => ({
       id: cc.id,
       codigo: cc.codigo,
@@ -562,7 +607,8 @@ export class SupabaseErpRepository implements IErpRepository {
       tipo: cc.tipo,
       nivel: cc.nivel,
       aceitaLancamento: cc.aceita_lancamento,
-      linhaGestaoId: cc.linha_gestao_id ?? null,
+      escopoGlobal: cc.escopo_global ?? false,
+      linhasGestaoIds: vinculos.get(cc.id) ?? [],
       dataInicio: cc.data_inicio,
       dataFim: cc.data_fim,
       ativo: cc.ativo,
@@ -584,7 +630,8 @@ export class SupabaseErpRepository implements IErpRepository {
       tipo: data.tipo,
       nivel: data.nivel,
       aceitaLancamento: data.aceita_lancamento,
-      linhaGestaoId: data.linha_gestao_id ?? null,
+      escopoGlobal: data.escopo_global ?? false,
+      linhasGestaoIds: (await this.linhasPorCentroCusto(data.id)).get(data.id) ?? [],
       dataInicio: data.data_inicio,
       dataFim: data.data_fim,
       ativo: data.ativo,
@@ -606,17 +653,28 @@ export class SupabaseErpRepository implements IErpRepository {
       data_fim: data.dataFim || null,
       ativo: data.ativo ?? true
     };
-    // Coluna da migration 10: sem a guarda, o insert inteiro falharia no banco
-    // que ainda não a recebeu. Mas vínculo escolhido não se perde calado.
-    if (await this.temColuna('centro_custo', 'linha_gestao_id')) {
-      linha.linha_gestao_id = toUuidOrNull(data.linhaGestaoId);
-    } else if (toUuidOrNull(data.linhaGestaoId)) {
-      throw erroMigration10();
+    // Coluna da migration 11: sem a guarda, o insert inteiro falharia no banco
+    // que ainda não a recebeu. Mas escopo escolhido não se perde calado.
+    if (await this.temColuna('centro_custo', 'escopo_global')) {
+      linha.escopo_global = data.escopoGlobal ?? false;
+    } else if (data.escopoGlobal) {
+      throw erroMigration11('O alcance global do centro de custo');
+    }
+
+    /*
+     * A recusa das linhas vem ANTES do insert: falhar depois deixaria um centro
+     * de custo órfão já gravado, e a segunda tentativa esbarraria no código
+     * duplicado. Sem transação no PostgREST, checar cedo é o que dá para fazer.
+     */
+    if ((data.linhasGestaoIds ?? []).length > 0 && !(await this.temTabela('centro_custo_linha_gestao'))) {
+      throw erroMigration11('O vínculo com as Linhas de Gestão');
     }
 
     const { data: inserted, error } = await this.client.from('centro_custo').insert(linha).select().single();
     this.cache.invalidar('centro_custo');   // só depois da escrita confirmada
     if (error || !inserted) throw new Error(error?.message || 'Erro ao criar centro de custo');
+
+    await this.gravarLinhasDoCentroCusto(inserted.id, data.linhasGestaoIds);
     return this.getCentroCustoById(inserted.id) as Promise<CentroCusto>;
   }
 
@@ -634,11 +692,11 @@ export class SupabaseErpRepository implements IErpRepository {
     if (data.tipo !== undefined) payload.tipo = data.tipo;
     if (data.nivel !== undefined) payload.nivel = data.nivel;
     if (data.aceitaLancamento !== undefined) payload.aceita_lancamento = data.aceitaLancamento;
-    if (data.linhaGestaoId !== undefined) {
-      if (await this.temColuna('centro_custo', 'linha_gestao_id')) {
-        payload.linha_gestao_id = toUuidOrNull(data.linhaGestaoId);
-      } else if (toUuidOrNull(data.linhaGestaoId)) {
-        throw erroMigration10();
+    if (data.escopoGlobal !== undefined) {
+      if (await this.temColuna('centro_custo', 'escopo_global')) {
+        payload.escopo_global = data.escopoGlobal;
+      } else if (data.escopoGlobal) {
+        throw erroMigration11('O alcance global do centro de custo');
       }
     }
     if (data.dataInicio !== undefined) payload.data_inicio = data.dataInicio || null;
@@ -646,9 +704,65 @@ export class SupabaseErpRepository implements IErpRepository {
     if (data.ativo !== undefined) payload.ativo = data.ativo;
 
     const { error } = await this.client.from('centro_custo').update(payload).eq('id', id);
-    this.cache.invalidar('centro_custo');   // só depois da escrita confirmada
-    if (error) throw new Error(error.message);
+    if (error) {
+      this.cache.invalidar('centro_custo');
+      throw new Error(error.message);
+    }
+
+    await this.gravarLinhasDoCentroCusto(id, data.linhasGestaoIds);
+    this.cache.invalidar('centro_custo');   // depois de TUDO, vínculos inclusive
     return this.getCentroCustoById(id) as Promise<CentroCusto>;
+  }
+
+  /**
+   * Substitui as linhas de gestão de um centro de custo.
+   *
+   * `undefined` significa "não mexa" — quem chama sem tocar no campo (ajuste de
+   * nível na árvore, por exemplo) não pode apagar os vínculos sem querer. Lista
+   * vazia, sim, significa "não tem nenhuma".
+   */
+  private async gravarLinhasDoCentroCusto(centroCustoId: string, linhas?: string[]): Promise<void> {
+    if (linhas === undefined) return;
+
+    if (!(await this.temTabela('centro_custo_linha_gestao'))) {
+      if (linhas.length > 0) throw erroMigration11('O vínculo com as Linhas de Gestão');
+      return;
+    }
+
+    /*
+     * Id ilegível é recusa, não descarte. `toUuidOrNull` devolvendo null faria a
+     * gravação dizer sucesso com menos linhas do que a pessoa escolheu.
+     */
+    const desejados = [...new Set(linhas)].map((l) => {
+      const uuid = toUuidOrNull(l);
+      if (!uuid) throw new Error(`Linha de Gestão inválida na seleção: "${l}".`);
+      return uuid;
+    });
+
+    const atuais = (await this.linhasPorCentroCusto(centroCustoId)).get(centroCustoId) ?? [];
+    const paraInserir = desejados.filter((l) => !atuais.includes(l));
+    const paraRemover = atuais.filter((l) => !desejados.includes(l));
+
+    /*
+     * Diferença, e não "apaga tudo e reinsere": sem transação no PostgREST, uma
+     * falha no insert depois do delete deixaria o centro de custo SEM vínculo
+     * nenhum — perdendo o que já estava certo.
+     */
+    if (paraInserir.length > 0) {
+      const { error: insErro } = await this.client!
+        .from('centro_custo_linha_gestao')
+        .insert(paraInserir.map((linha_gestao_id) => ({ centro_custo_id: centroCustoId, linha_gestao_id })));
+      if (insErro) throw new Error(`Não foi possível gravar as linhas de gestão: ${insErro.message}`);
+    }
+
+    if (paraRemover.length > 0) {
+      const { error: delErro } = await this.client!
+        .from('centro_custo_linha_gestao')
+        .delete()
+        .eq('centro_custo_id', centroCustoId)
+        .in('linha_gestao_id', paraRemover);
+      if (delErro) throw new Error(`Não foi possível remover linhas de gestão: ${delErro.message}`);
+    }
   }
 
   async deleteCentroCusto(id: string): Promise<boolean> {
@@ -1119,7 +1233,13 @@ export class SupabaseErpRepository implements IErpRepository {
     const chave = `tabela:${tabela}`;
     if (!this.colunasConhecidas.has(chave)) {
       this.colunasConhecidas.set(chave, (async () => {
-        const { error } = await this.client!.from(tabela).select('id').limit(1);
+        /*
+         * `select('*')`, não `select('id')`: tabela de ligação tem chave
+         * composta e NENHUMA coluna `id`. Sondar por `id` devolvia 42703 e a
+         * tabela existente era dada como ausente — a feature inteira nascia
+         * morta mesmo com a migration aplicada.
+         */
+        const { error } = await this.client!.from(tabela).select('*').limit(1);
         return !error;
       })());
     }
