@@ -2534,7 +2534,7 @@ export class SupabaseErpRepository implements IErpRepository {
     const parcelaIds = [...new Set((rateios as any[]).map((r) => r.parcela_id).filter(Boolean))];
     const { data: parcelas, error: parErro } = await this.client
       .from('titulo_parcela')
-      .select('id, titulo_id')
+      .select('id, titulo_id, ativo')
       .in('id', parcelaIds);
     if (parErro) {
       throw new Error(`Não foi possível identificar os títulos que usam este orçamento: ${parErro.message}`);
@@ -2544,16 +2544,60 @@ export class SupabaseErpRepository implements IErpRepository {
     const tituloIds = [...new Set([...tituloPorParcela.values()].filter(Boolean))];
     const { data: titulos, error: titErro } = await this.client
       .from('titulo')
-      .select('id, codigo, descricao')
+      .select('id, codigo, descricao, ativo')
       .in('id', tituloIds);
     if (titErro) {
       throw new Error(`Não foi possível identificar os títulos que usam este orçamento: ${titErro.message}`);
     }
 
     const tituloPorId = new Map((titulos ?? []).map((t: any) => [t.id, t]));
+    const parcelaPorId = new Map((parcelas ?? []).map((p: any) => [p.id, p]));
+
+    /*
+     * Título excluído NÃO bloqueia.
+     *
+     * A exclusão de título é lógica (`ativo = false`): o título some das
+     * listagens e do acompanhamento, mas a linha de `titulo_rateio` fica no
+     * banco ainda apontando para o item. Contar essas linhas fazia a tela
+     * apresentar como impedimento um título que o usuário já tinha apagado — e
+     * discordar do consumo, que ignora inativo desde sempre.
+     *
+     * Elas continuam contadas à parte: o vínculo existe no banco e precisa ser
+     * desfeito antes do DELETE, senão o ON DELETE RESTRICT recusa.
+     */
+    /*
+     * Na dúvida, BLOQUEIA.
+     *
+     * Rateio cuja parcela ou título não deu para resolver — leitura truncada,
+     * RLS, `parcela_id` vazio — conta como vivo. Classificar como "título
+     * excluído" liberaria a exclusão e ainda mandaria apagar o vínculo de uma
+     * apropriação que talvez esteja de pé. O caminho seguro é recusar e mostrar
+     * a linha, mesmo sem saber o código do título.
+     */
+    const vivo = (r: any) => {
+      const parcela = parcelaPorId.get(r.parcela_id);
+      if (!parcela) return true;
+      if (parcela.ativo === false) return false;
+      const titulo = tituloPorId.get(parcela.titulo_id);
+      if (!titulo) return true;
+      return titulo.ativo !== false;
+    };
+
+    const doisGrupos = (rateios as any[]).reduce<{ vivos: any[]; mortos: any[] }>(
+      (acc, r) => {
+        (vivo(r) ? acc.vivos : acc.mortos).push(r);
+        return acc;
+      },
+      { vivos: [], mortos: [] }
+    );
+
+    base.vinculosDeTitulosExcluidos = doisGrupos.mortos.length;
+    base.rateiosDeTitulosExcluidos = doisGrupos.mortos.map((r) => r.id).filter(Boolean);
+
+    if (doisGrupos.vivos.length === 0) return base;
 
     base.podeExcluir = false;
-    base.bloqueios = (rateios as any[]).map((r) => {
+    base.bloqueios = doisGrupos.vivos.map((r) => {
       const tituloId = tituloPorParcela.get(r.parcela_id);
       const titulo = tituloId ? tituloPorId.get(tituloId) : undefined;
       const item = itemPorId.get(r.orcamento_item_id);
@@ -2583,9 +2627,49 @@ export class SupabaseErpRepository implements IErpRepository {
     // Os ids têm de ser lidos ANTES: depois do delete não há mais o que ler.
     const itensIds = ((await this.getOrcamentoById(id))?.itens ?? []).map((i) => i.id);
 
+    /*
+     * Remove os rateios de títulos JÁ EXCLUÍDOS que ainda apontam para os itens.
+     *
+     * A exclusão de título é lógica, então a linha de rateio fica no banco e o
+     * ON DELETE RESTRICT recusaria o DELETE do orçamento por causa de um título
+     * que o usuário já apagou.
+     *
+     * REMOVE em vez de anular o vínculo: `uq_parcela_centro_custo_item` indexa
+     * (parcela, centro de custo, item) com COALESCE, então anular dois rateios
+     * da mesma parcela e mesmo centro de custo os colapsaria na mesma chave e o
+     * UPDATE falharia com duplicidade — deixando o orçamento impossível de
+     * excluir por um motivo ainda mais obscuro.
+     *
+     * Mira nos IDS que a prévia classificou, não em "tudo que aponta para os
+     * itens": apropriação criada na janela entre a prévia e o clique tem de
+     * continuar batendo no RESTRICT, não ser varrida junto.
+     */
+    const mortos = previa.rateiosDeTitulosExcluidos ?? [];
+    if (mortos.length > 0) {
+      const { error: soltarErro } = await this.client
+        .from('titulo_rateio')
+        .delete()
+        .in('id', mortos);
+      if (soltarErro) {
+        throw new Error(
+          `Não foi possível remover apropriações de títulos excluídos: ${soltarErro.message}`
+        );
+      }
+    }
+
     const { error } = await this.client.from('orcamento').delete().eq('id', id);
     this.cache.invalidar('orcamento');   // só depois da escrita confirmada
-    if (error) throw new Error(`Não foi possível excluir o orçamento: ${error.message}`);
+    if (error) {
+      /*
+       * Sem transação no PostgREST: se o DELETE falha aqui, os rateios mortos já
+       * foram removidos. Dizer isso é melhor do que deixar o usuário achando que
+       * nada aconteceu e tentar de novo às cegas.
+       */
+      const jaRemovidos = mortos.length > 0
+        ? ` ${mortos.length} apropriação(ões) de títulos excluídos já haviam sido removidas.`
+        : '';
+      throw new Error(`Não foi possível excluir o orçamento: ${error.message}.${jaRemovidos}`);
+    }
 
     for (const itemId of itensIds) this.planoContaDeItem.delete(itemId);
     return true;

@@ -800,6 +800,17 @@ export interface ExclusaoOrcamentoPrevia {
    * naturezas diferentes e a tela explica cada um do seu jeito.
    */
   revisoesDependentes?: string;
+  /**
+   * Rateios de títulos JÁ EXCLUÍDOS que ainda apontam para itens desta planilha.
+   *
+   * Não impedem a exclusão — o título não existe mais para o usuário —, mas o
+   * vínculo continua no banco e precisa ser desfeito antes do DELETE, senão o
+   * ON DELETE RESTRICT recusa. A confirmação diz quantos são, em vez de mexer
+   * neles sem avisar.
+   */
+  vinculosDeTitulosExcluidos?: number;
+  /** Os ids desses rateios — a exclusão remove exatamente estes, e nada além. */
+  rateiosDeTitulosExcluidos?: string[];
 }
 
 export interface DisponibilidadeOrcamentariaResultado {

@@ -651,6 +651,15 @@ export class MockErpRepository implements IErpRepository {
             centroCustoId: r.centroCustoId,
             centroCustoCodigo: cc?.codigo || '999',
             centroCustoNome: cc?.nome || 'Não alocado',
+            /*
+             * O item de orçamento e o plano vinham sendo DESCARTADOS aqui: o
+             * mock guardava só centro de custo e valor. Com isso ele não
+             * conseguia reproduzir nada de apropriação por item — nem o consumo,
+             * nem a trava de exclusão de orçamento —, justamente no ambiente em
+             * que o fluxo é validado antes de tocar em produção.
+             */
+            orcamentoItemId: r.orcamentoItemId,
+            planoContaId: r.planoContaId,
             percentual: r.percentual,
             valorCentavos: r.valorCentavos
           };
@@ -768,6 +777,15 @@ export class MockErpRepository implements IErpRepository {
             centroCustoId: r.centroCustoId,
             centroCustoCodigo: cc?.codigo || '999',
             centroCustoNome: cc?.nome || 'Não alocado',
+            /*
+             * O item de orçamento e o plano vinham sendo DESCARTADOS aqui: o
+             * mock guardava só centro de custo e valor. Com isso ele não
+             * conseguia reproduzir nada de apropriação por item — nem o consumo,
+             * nem a trava de exclusão de orçamento —, justamente no ambiente em
+             * que o fluxo é validado antes de tocar em produção.
+             */
+            orcamentoItemId: r.orcamentoItemId,
+            planoContaId: r.planoContaId,
             percentual: r.percentual,
             valorCentavos: r.valorCentavos
           };
@@ -1982,11 +2000,20 @@ export class MockErpRepository implements IErpRepository {
     const itemPorId = new Map(orc.itens.map(i => [i.id, i]));
     const bloqueios: TituloBloqueandoExclusao[] = [];
 
+    let vinculosDeTitulosExcluidos = 0;
+    const rateiosDeTitulosExcluidos: string[] = [];
+
     for (const t of mockTitulos) {
       for (const p of t.parcelas ?? []) {
         for (const r of p.rateios ?? []) {
           const item = r.orcamentoItemId ? itemPorId.get(r.orcamentoItemId) : undefined;
           if (!item) continue;
+          // Título/parcela excluído não bloqueia — ver o repositório Supabase.
+          if (t.ativo === false || p.ativo === false) {
+            vinculosDeTitulosExcluidos++;
+            if (r.id) rateiosDeTitulosExcluidos.push(r.id);
+            continue;
+          }
           bloqueios.push({
             tituloId: t.id,
             tituloCodigo: t.codigo || '(sem código)',
@@ -2004,6 +2031,8 @@ export class MockErpRepository implements IErpRepository {
       itensCount: orc.itens.length,
       valorTotalCentavos: orc.valorTotalCentavos,
       bloqueios,
+      vinculosDeTitulosExcluidos,
+      rateiosDeTitulosExcluidos,
     };
   }
 
@@ -2013,6 +2042,21 @@ export class MockErpRepository implements IErpRepository {
 
     const idx = mockOrcamentosEmpreendimento.findIndex(o => o.id === id);
     if (idx === -1) throw new Error('Orçamento não encontrado');
+
+    /*
+     * Remove os rateios de títulos já excluídos, como o repositório Supabase
+     * faz. Sem isto o mock validava uma exclusão que em produção esbarra no
+     * ON DELETE RESTRICT — e é justamente aqui que o fluxo é conferido.
+     */
+    const mortos = new Set(previa.rateiosDeTitulosExcluidos ?? []);
+    if (mortos.size > 0) {
+      for (const t of mockTitulos) {
+        for (const p of t.parcelas ?? []) {
+          if (p.rateios) p.rateios = p.rateios.filter(r => !r.id || !mortos.has(r.id));
+        }
+      }
+    }
+
     mockOrcamentosEmpreendimento.splice(idx, 1);
     return true;
   }

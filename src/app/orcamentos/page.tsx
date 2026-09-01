@@ -934,7 +934,20 @@ function OrcamentosPage() {
                       </strong>{' '}
                       orçados.
                     </p>
-                    <p>Nenhum título está apropriado nesta planilha, então nada de financeiro é afetado.</p>
+                    {(modalExcluirOpen.previa.vinculosDeTitulosExcluidos ?? 0) > 0 ? (
+                      <p>
+                        Nenhum título ativo está apropriado aqui. Existem{' '}
+                        <strong>
+                          {modalExcluirOpen.previa.vinculosDeTitulosExcluidos} apropriação(ões) de
+                          títulos já excluídos
+                        </strong>{' '}
+                        ainda apontando para estes itens — essas linhas de rateio serão removidas
+                        junto. Os títulos em si já não existem, e o acompanhamento orçamentário
+                        nunca as contou.
+                      </p>
+                    ) : (
+                      <p>Nenhum título está apropriado nesta planilha, então nada de financeiro é afetado.</p>
+                    )}
                   </div>
 
                   <p className="text-xs text-ink-muted">
