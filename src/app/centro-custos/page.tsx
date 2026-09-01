@@ -15,6 +15,7 @@ export default function CentroCustosPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [apenasAtivos, setApenasAtivos] = useState(true);
+  const [filtroTipo, setFiltroTipo] = useState<string>('todos');
 
   // Modal State
   const [modalOpen, setModalOpen] = useState(false);
@@ -29,7 +30,7 @@ export default function CentroCustosPage() {
   const [formCodigo, setFormCodigo] = useState('');
   const [formNome, setFormNome] = useState('');
   const [formParentId, setFormParentId] = useState<string>('');
-  const [formTipo, setFormTipo] = useState<TipoCentroCusto>('obra');
+  const [formTipo, setFormTipo] = useState<TipoCentroCusto>('centro_custo_obra');
   const [formGrupoGestaoId, setFormGrupoGestaoId] = useState<string>('');
   const [formLinhaGestaoId, setFormLinhaGestaoId] = useState<string>('');
   /** Linhas de gestão do Grupo Macro. Vazio + global = vale para todas. */
@@ -99,7 +100,7 @@ export default function CentroCustosPage() {
     } else {
       setFormParentId('');
       setFormCodigo(proximoCodigo(centrosTodos));
-      setFormTipo('obra');
+      setFormTipo('centro_custo_obra');
       setFormGrupoGestaoId('');
       setFormLinhaGestaoId('');
       setFormLinhasIds([]);
@@ -150,35 +151,23 @@ export default function CentroCustosPage() {
     : new Set<string>();
 
   /**
-   * Vocabulário da tela: o nó de topo é a "Obra" e tudo que pendura abaixo dele
-   * é uma "Unidade Construtiva". São exatamente os nomes das duas primeiras
-   * colunas da aba Apropriação do título — mesma árvore, mesmo cadastro.
-   *
-   * "Obra" cobre também frota, administrativo e comercial, que são centros de
-   * custo sem obra física; por isso o rótulo de topo cita os dois nomes.
-   *
-   * É o vínculo selecionado que define qual dos dois está sendo cadastrado — por
-   * isso deriva do formulário, e não do registro carregado: trocar o vínculo no
-   * modal já troca os rótulos.
+   * Vocabulário dinâmico da tela:
    */
   const ehLinha = formParentId !== '';
-  const rotuloRegistro = ehLinha ? 'Unidade Construtiva' : 'Obra / Centro de Custo';
+  const rotuloRegistro = ehLinha
+    ? 'Unidade Construtiva'
+    : formTipo === 'centro_custo'
+    ? 'Centro de Custo'
+    : formTipo === 'obra'
+    ? 'Obra'
+    : 'Centro de Custo & Obra';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    /*
-     * O nível vem do PAI, não do formato do código.
-     *
-     * Antes era `formCodigo.split('.').length`: criar "CC-002" sob um pai
-     * gerava nível 1 com parent_id preenchido — filho declarado como raiz.
-     * É o mesmo defeito que deixou o plano de contas com "3.1.01" no nível 2.
-     */
     const pai = formParentId ? centrosTodos.find((cc) => cc.id === formParentId) : null;
     if (formParentId && !pai) {
-      // Sem o pai em mãos o nível sairia 1 com parent_id preenchido — justamente
-      // o "filho declarado como raiz" que esta correção existe para evitar.
-      alert('Não foi possível identificar a Obra desta unidade construtiva. Recarregue a tela e tente de novo.');
+      alert('Não foi possível identificar o Centro de Custo / Obra pai. Recarregue a tela e tente de novo.');
       return;
     }
     const nivel = pai ? pai.nivel + 1 : 1;
@@ -190,22 +179,11 @@ export default function CentroCustosPage() {
       tipo: formTipo,
       nivel,
       aceitaLancamento: formAceitaLancamento,
-      /*
-       * Só o nó de topo guarda o vínculo. A unidade construtiva HERDA da obra
-       * pela árvore (ver `obrasDasLinhasGestao`), então gravar cópia no filho só
-       * cria divergência: trocar as linhas da obra depois deixaria o filho
-       * apontando para as antigas, e as obras dele apareceriam nas duas ao mesmo
-       * tempo. O campo continua visível no formulário do filho, em leitura.
-       *
-       * Global e lista são excludentes: marcado global, as linhas escolhidas
-       * deixam de importar e são limpas, para não ficar um resto invisível que
-       * volta a valer se alguém desmarcar o global depois.
-       */
       escopoGlobal: formParentId ? false : formEscopoGlobal,
       linhasGestaoIds: formParentId ? [] : formEscopoGlobal ? [] : formLinhasIds,
       dataInicio: formDataInicio || null,
       dataFim: formDataFim || null,
-      ativo: true
+      ativo: true,
     };
 
     let centroCustoSalvoId = editingId;
@@ -222,46 +200,23 @@ export default function CentroCustosPage() {
       return;
     }
 
-    /*
-     * O vínculo com a Linha de Gestão vai junto no payload acima.
-     *
-     * Aqui havia ~40 linhas que gravavam do outro lado, em
-     * `linha_gestao.centro_custo_id`. Como aquela coluna é 1:1, vincular um
-     * segundo centro de custo à mesma linha ROUBAVA o vínculo do primeiro — e o
-     * código precisava de um passo explícito de "desvincular a linha anterior"
-     * só por causa disso. Com o vínculo no centro de custo, várias obras cabem
-     * na mesma linha, que é o que a Apropriação precisa.
-     */
-
     // Mover um nó muda a profundidade de tudo abaixo dele.
     if (editingId) {
       for (const ajuste of recalcularNiveis(centrosTodos, editingId, nivel)) {
         try {
           await erpRepository.updateCentroCusto(ajuste.id, { nivel: ajuste.nivel });
         } catch {
-          /* nível é cosmético na árvore: não vale abortar o salvamento por ele */
+          /* nível é cosmético na árvore */
         }
       }
     }
 
-    /*
-     * Nó que ganhou filho deixa de aceitar lançamento.
-     *
-     * Sem isso o custo poderia ser lançado no pai E nos filhos, e o total do
-     * pai somaria as duas coisas — dobrando o valor no relatório.
-     */
-    // O CC-999 "Não alocado" é o destino padrão do sistema: rebaixá-lo a
-    // agrupador tiraria o único lugar onde títulos sem obra podem cair.
-    // Identificado pelo código, que é igual nos dois repositórios — o id muda
-    // (UUID no Supabase, "cc-999" no mock) e comparar por id deixava o mock passar.
     const ehNaoAlocado = (pai?.codigo || '').replace(/\D/g, '') === '999';
     if (pai && pai.aceitaLancamento && !ehNaoAlocado) {
       try {
         await erpRepository.updateCentroCusto(pai.id, { aceitaLancamento: false });
       } catch {
-        // O filho já foi gravado: avisar sem travar o usuário num modal que,
-        // ao ser reenviado, esbarraria no código único.
-        alert('A unidade construtiva foi salva, mas não foi possível marcar a Obra como agrupadora. Ajuste manualmente.');
+        alert('O registro foi salvo, mas não foi possível marcar o pai como agrupador.');
       }
     }
 
@@ -278,18 +233,56 @@ export default function CentroCustosPage() {
 
   const getTipoBadge = (tipo: TipoCentroCusto) => {
     switch (tipo) {
-      case 'obra':
-        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 uppercase">Obra</span>;
+      case 'centro_custo':
       case 'administrativo':
-        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800 uppercase">Admin</span>;
+        return (
+          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-800 border border-indigo-200/80 flex items-center gap-1 uppercase">
+            🏢 Centro de Custo
+          </span>
+        );
+      case 'obra':
+        return (
+          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200/80 flex items-center gap-1 uppercase">
+            🏗️ Apenas Obra
+          </span>
+        );
+      case 'centro_custo_obra':
+        return (
+          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-900 border border-purple-300 flex items-center gap-1 uppercase font-extrabold shadow-xs">
+            🌟 Centro de Custo & Obra
+          </span>
+        );
       case 'frota':
-        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 uppercase">Frota</span>;
+        return (
+          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200/80 flex items-center gap-1 uppercase">
+            🚚 Frota
+          </span>
+        );
       case 'comercial':
-        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 uppercase">Comercial</span>;
+        return (
+          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200/80 flex items-center gap-1 uppercase">
+            📈 Comercial
+          </span>
+        );
+      default:
+        return (
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-800 uppercase">
+            {tipo}
+          </span>
+        );
     }
   };
 
   const treeNodes: TreeNode[] = centrosAtivos
+    .filter((cc) => {
+      if (filtroTipo === 'todos') return true;
+      if (filtroTipo === 'centro_custo') {
+        return cc.tipo === 'centro_custo' || cc.tipo === 'administrativo' || cc.tipo === 'frota' || cc.tipo === 'comercial';
+      }
+      if (filtroTipo === 'obra') return cc.tipo === 'obra';
+      if (filtroTipo === 'centro_custo_obra') return cc.tipo === 'centro_custo_obra';
+      return true;
+    })
     .filter((cc) => {
       if (!searchTerm) return true;
       return cc.nome.toLowerCase().includes(searchTerm.toLowerCase()) || cc.codigo.includes(searchTerm);
@@ -387,12 +380,11 @@ export default function CentroCustosPage() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-surface rounded-2xl p-6 shadow-soft border border-black/[0.03]">
         <div>
-          <h1 className="text-xl font-bold text-ink-primary tracking-tight">Centro de Custos (Obras & Projetos)</h1>
+          <h1 className="text-xl font-bold text-ink-primary tracking-tight">Centro de Custos & Obras</h1>
           <p className="text-xs text-ink-muted mt-1">
-            Cada Obra se ramifica em Unidades Construtivas (como <strong>IMPOSTOS</strong>, <strong>ENGENHARIA</strong>,{' '}
-            <strong>MÃO DE OBRA</strong>, <strong>MATERIAIS</strong> e <strong>TORRES</strong>). São estes os nomes que a aba{' '}
-            <strong>Apropriação</strong> do título usa nas duas primeiras colunas, e é aqui que o
-            orçamento da obra encontra as unidades para distribuir os itens.
+            Cadastre entidades como <strong>Apenas Centro de Custo</strong>, <strong>Apenas Obra</strong> ou <strong>Centro de Custo e Obra</strong> (híbrido).
+            Obras se ramificam em Unidades Construtivas (como <strong>IMPOSTOS</strong>, <strong>ENGENHARIA</strong>,{' '}
+            <strong>MÃO DE OBRA</strong>, <strong>MATERIAIS</strong> e <strong>TORRES</strong>) para amarração na aba <strong>Apropriação</strong> e orçamento.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -413,22 +405,37 @@ export default function CentroCustosPage() {
             className="flex items-center justify-center gap-2 px-4 py-2.5 bg-brand hover:bg-brand-hover text-white rounded-xl text-xs font-semibold shadow-md transition-all active:scale-[0.98]"
           >
             <Plus className="w-4 h-4" />
-            <span>Nova Obra</span>
+            <span>Novo Centro de Custo / Obra</span>
           </button>
         </div>
       </div>
 
-      {/* Busca, Filtro por Empresa e Ativos */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div className="relative flex-1 w-full sm:w-80">
-          <Search className="w-4 h-4 text-ink-muted absolute left-3.5 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            placeholder="Filtrar por código ou nome de centro de custos..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-surface border border-black/[0.06] rounded-xl pl-10 pr-4 py-2 text-xs text-ink-primary placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-brand/40 shadow-soft"
-          />
+      {/* Busca, Filtro por Tipo e Ativos */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="flex flex-col sm:flex-row items-center gap-3 flex-1 w-full">
+          <div className="relative flex-1 w-full sm:w-80">
+            <Search className="w-4 h-4 text-ink-muted absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Filtrar por código ou nome de centro de custos / obra..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full bg-surface border border-black/[0.06] rounded-xl pl-10 pr-4 py-2 text-xs text-ink-primary placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-brand/40 shadow-soft"
+            />
+          </div>
+
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <select
+              value={filtroTipo}
+              onChange={(e) => setFiltroTipo(e.target.value)}
+              className="bg-surface border border-black/[0.06] rounded-xl px-3 py-2 text-xs font-semibold text-ink-primary focus:outline-none focus:ring-2 focus:ring-brand shadow-soft"
+            >
+              <option value="todos">Todos os Tipos</option>
+              <option value="centro_custo">🏢 Apenas Centro de Custo</option>
+              <option value="obra">🏗️ Apenas Obras</option>
+              <option value="centro_custo_obra">🌟 Centro de Custo & Obra</option>
+            </select>
+          </div>
         </div>
 
         <div className="flex items-center gap-3 w-full sm:w-auto">
@@ -449,7 +456,7 @@ export default function CentroCustosPage() {
         {loading ? (
           <div className="p-12 text-center text-ink-muted font-medium">Carregando centro de custos...</div>
         ) : treeNodes.length === 0 ? (
-          <div className="p-12 text-center text-ink-muted">Nenhuma obra encontrada.</div>
+          <div className="p-12 text-center text-ink-muted">Nenhum registro encontrado.</div>
         ) : (
           <TreeView
             nodes={treeNodes}
@@ -477,7 +484,7 @@ export default function CentroCustosPage() {
                     {editingId ? `Editar ${rotuloRegistro}` : `${ehLinha ? 'Nova' : 'Novo'} ${rotuloRegistro}`}
                   </h3>
                   <p className="text-xs text-ink-muted">
-                    {ehLinha ? 'Defina os detalhes da Unidade Construtiva' : 'Defina os dados da Obra / Centro de Custo'}
+                    {ehLinha ? 'Defina os detalhes da Unidade Construtiva' : 'Defina a finalidade e os dados do registro'}
                   </p>
                 </div>
                 <button
@@ -491,8 +498,92 @@ export default function CentroCustosPage() {
 
               <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0 overflow-hidden">
                 <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+                  {/* Classificação / Finalidade (Opção de ser Centro de Custo, Obra ou Ambos) */}
+                  {!ehLinha && (
+                    <div>
+                      <label className="block text-xs font-semibold text-ink-muted mb-2">
+                        Finalidade do Registro *
+                      </label>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                        {/* 1. Apenas Centro de Custo */}
+                        <button
+                          type="button"
+                          onClick={() => setFormTipo('centro_custo')}
+                          className={`p-3 rounded-xl border text-left flex flex-col justify-between transition-all ${
+                            formTipo === 'centro_custo' || formTipo === 'administrativo' || formTipo === 'frota' || formTipo === 'comercial'
+                              ? 'bg-indigo-50/80 border-indigo-400 ring-2 ring-indigo-500/20 shadow-xs'
+                              : 'bg-white border-black/10 hover:bg-black/[0.02]'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-base">🏢</span>
+                            {(formTipo === 'centro_custo' || formTipo === 'administrativo' || formTipo === 'frota' || formTipo === 'comercial') && (
+                              <Check className="w-3.5 h-3.5 text-indigo-600 stroke-[3]" />
+                            )}
+                          </div>
+                          <div>
+                            <h4 className="text-xs font-bold text-ink-primary">Apenas Centro de Custo</h4>
+                            <p className="text-[10px] text-ink-muted mt-0.5 leading-snug">
+                              Administrativo, frota, comercial e departamentos sem canteiro de obras.
+                            </p>
+                          </div>
+                        </button>
+
+                        {/* 2. Apenas Obra */}
+                        <button
+                          type="button"
+                          onClick={() => setFormTipo('obra')}
+                          className={`p-3 rounded-xl border text-left flex flex-col justify-between transition-all ${
+                            formTipo === 'obra'
+                              ? 'bg-amber-50/80 border-amber-400 ring-2 ring-amber-500/20 shadow-xs'
+                              : 'bg-white border-black/10 hover:bg-black/[0.02]'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-base">🏗️</span>
+                            {formTipo === 'obra' && (
+                              <Check className="w-3.5 h-3.5 text-amber-600 stroke-[3]" />
+                            )}
+                          </div>
+                          <div>
+                            <h4 className="text-xs font-bold text-ink-primary">Apenas Obra</h4>
+                            <p className="text-[10px] text-ink-muted mt-0.5 leading-snug">
+                              Projetos, construções, reformas e empreendimentos com unidades construtivas.
+                            </p>
+                          </div>
+                        </button>
+
+                        {/* 3. Centro de Custo e Obra */}
+                        <button
+                          type="button"
+                          onClick={() => setFormTipo('centro_custo_obra')}
+                          className={`p-3 rounded-xl border text-left flex flex-col justify-between transition-all ${
+                            formTipo === 'centro_custo_obra'
+                              ? 'bg-purple-50/80 border-purple-400 ring-2 ring-purple-500/20 shadow-xs'
+                              : 'bg-white border-black/10 hover:bg-black/[0.02]'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-base">🌟</span>
+                            {formTipo === 'centro_custo_obra' && (
+                              <Check className="w-3.5 h-3.5 text-purple-600 stroke-[3]" />
+                            )}
+                          </div>
+                          <div>
+                            <h4 className="text-xs font-bold text-ink-primary">Centro de Custo & Obra</h4>
+                            <p className="text-[10px] text-ink-muted mt-0.5 leading-snug">
+                              Híbrido: opera como obra física e também como centro de custo financeiro autônomo.
+                            </p>
+                          </div>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   <div>
-                    <label className="block text-xs font-semibold text-ink-muted mb-1">Obra</label>
+                    <label className="block text-xs font-semibold text-ink-muted mb-1">
+                      {ehLinha ? 'Obra / Centro de Custo Pai' : 'Vínculo Hierárquico (Pai Opcional)'}
+                    </label>
                     <select
                       value={formParentId}
                       onChange={(e) => {
@@ -501,7 +592,6 @@ export default function CentroCustosPage() {
                         setFormParentId(novoPaiId);
                         setFormCodigo(proximoCodigo(centrosTodos.filter((c) => c.id !== editingId), novoPai));
 
-                        // Se selecionou uma Obra (unidade construtiva), herda automaticamente a Linha de Gestão da Obra
                         if (novoPaiId) {
                           const linhaPai = getLinhaVinculadaDoCentroOuAncestrais(novoPaiId);
                           if (linhaPai) {
@@ -512,7 +602,7 @@ export default function CentroCustosPage() {
                       }}
                       className="w-full bg-surface-muted border border-black/10 rounded-xl px-3 py-2 text-xs text-ink-primary focus:outline-none focus:ring-2 focus:ring-brand"
                     >
-                      <option value="">Nenhum — cadastrar uma Obra</option>
+                      <option value="">Nenhum (Nó Raiz)</option>
                       {centrosTodos
                         .filter(
                           (cc) =>
@@ -528,8 +618,8 @@ export default function CentroCustosPage() {
                     </select>
                     <p className="text-[11px] text-ink-muted mt-1">
                       {ehLinha
-                        ? 'Este registro será uma Unidade Construtiva da Obra selecionada.'
-                        : 'Sem vínculo, o registro é uma Obra — as Unidades Construtivas são cadastradas dentro dela.'}
+                        ? 'Este registro será uma Unidade Construtiva subordinada ao nó pai selecionado.'
+                        : 'Sem vínculo pai, o registro fica no topo da hierarquia como nó principal.'}
                     </p>
                   </div>
 
@@ -554,7 +644,9 @@ export default function CentroCustosPage() {
                         onChange={(e) => setFormTipo(e.target.value as TipoCentroCusto)}
                         className="w-full bg-surface-muted border border-black/10 rounded-xl px-3 py-2 text-xs text-ink-primary focus:outline-none focus:ring-2 focus:ring-brand"
                       >
-                        <option value="obra">Obra / Projeto</option>
+                        <option value="centro_custo_obra">🌟 Centro de Custo & Obra (Ambos)</option>
+                        <option value="centro_custo">🏢 Apenas Centro de Custo</option>
+                        <option value="obra">🏗️ Apenas Obra / Projeto</option>
                         <option value="administrativo">Administrativo</option>
                         <option value="frota">Frota & Equipamentos</option>
                         <option value="comercial">Comercial</option>

@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS public.centro_custo (
   codigo TEXT UNIQUE NOT NULL,
   nome TEXT NOT NULL,
   parent_id UUID REFERENCES public.centro_custo(id) ON DELETE RESTRICT,
-  tipo TEXT NOT NULL CHECK (tipo IN ('obra', 'administrativo', 'frota', 'comercial')),
+  tipo TEXT NOT NULL CHECK (tipo IN ('centro_custo', 'obra', 'centro_custo_obra', 'administrativo', 'frota', 'comercial')),
   nivel INT NOT NULL CHECK (nivel > 0),
   aceita_lancamento BOOLEAN DEFAULT true NOT NULL,
   data_inicio DATE,

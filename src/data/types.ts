@@ -2,7 +2,13 @@ export type StatusOrcamento = 'FATURADO' | 'EXPEDIDO' | 'ENTREGUE' | 'RECEBIDO';
 export type FormaPagamento = 'PIX' | 'BOLETO' | 'TRANSFERENCIA' | 'DINHEIRO' | 'CARTAO';
 export type FormaPagamentoMovimento = 'dinheiro' | 'pix' | 'ted' | 'boleto' | 'cartao' | 'cheque' | 'permuta';
 export type NaturezaPlanoConta = 'receita' | 'custo' | 'despesa' | 'investimento';
-export type TipoCentroCusto = 'obra' | 'administrativo' | 'frota' | 'comercial';
+export type TipoCentroCusto =
+  | 'centro_custo'
+  | 'obra'
+  | 'centro_custo_obra'
+  | 'administrativo'
+  | 'frota'
+  | 'comercial';
 export type TipoContaBancaria = 'corrente' | 'poupanca' | 'caixa' | 'aplicacao';
 export type TipoPessoa = 'F' | 'J';
 export type TipoTitulo = 'P' | 'R';
