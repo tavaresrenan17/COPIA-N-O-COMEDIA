@@ -8,6 +8,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { proximoCodigo } from '@/lib/codigos';
 import { descendentesDe, recalcularNiveis } from '@/lib/arvore';
 
+export const UNIDADES_PADRAO_OBRA = [
+  'MÃO DE OBRA',
+  'IMPOSTOS',
+  'ENGENHARIA',
+  'ADMINISTRATIVO',
+  'DIRETORIA',
+];
+
 export default function CentroCustosPage() {
   const [centrosAtivos, setCentrosAtivos] = useState<CentroCusto[]>([]);
   const [gruposGestao, setGruposGestao] = useState<GrupoGestao[]>([]);
@@ -31,6 +39,7 @@ export default function CentroCustosPage() {
   const [formNome, setFormNome] = useState('');
   const [formParentId, setFormParentId] = useState<string>('');
   const [formTipo, setFormTipo] = useState<TipoCentroCusto>('centro_custo_obra');
+  const [formAutoGerarUnidades, setFormAutoGerarUnidades] = useState(true);
   const [formGrupoGestaoId, setFormGrupoGestaoId] = useState<string>('');
   const [formLinhaGestaoId, setFormLinhaGestaoId] = useState<string>('');
   /** Linhas de gestão do Grupo Macro. Vazio + global = vale para todas. */
@@ -84,6 +93,7 @@ export default function CentroCustosPage() {
       setFormParentId(parent.id);
       setFormTipo((parent as any).tipo || 'obra');
       setFormCodigo(proximoCodigo(centrosTodos, parent));
+      setFormAutoGerarUnidades(false);
 
       // Herda automaticamente o Grupo e a Linha de Gestão da Obra de origem
       const linhaPai = getLinhaVinculadaDoCentroOuAncestrais(parent.id);
@@ -101,6 +111,7 @@ export default function CentroCustosPage() {
       setFormParentId('');
       setFormCodigo(proximoCodigo(centrosTodos));
       setFormTipo('centro_custo_obra');
+      setFormAutoGerarUnidades(true);
       setFormGrupoGestaoId('');
       setFormLinhaGestaoId('');
       setFormLinhasIds([]);
@@ -121,6 +132,7 @@ export default function CentroCustosPage() {
     setFormNome(item.nome);
     setFormParentId(item.parentId || '');
     setFormTipo(item.tipo);
+    setFormAutoGerarUnidades(false);
     setFormAceitaLancamento(item.aceitaLancamento);
     setFormDataInicio(item.dataInicio || '');
     setFormDataFim(item.dataFim || '');
@@ -194,6 +206,31 @@ export default function CentroCustosPage() {
       } else {
         const novoCC = await erpRepository.createCentroCusto(payload);
         centroCustoSalvoId = novoCC.id;
+
+        // Se for uma Obra nova (raiz) e estiver configurada para gerar unidades padrão:
+        const ehObra = formTipo === 'obra' || formTipo === 'centro_custo_obra';
+        if (ehObra && !formParentId && formAutoGerarUnidades) {
+          let listaAtual = [...centrosTodos, novoCC];
+          for (const nomeUnidade of UNIDADES_PADRAO_OBRA) {
+            const cod = proximoCodigo(
+              listaAtual,
+              { id: novoCC.id, codigo: novoCC.codigo } as any
+            );
+            const novaUnidade = await erpRepository.createCentroCusto({
+              codigo: cod,
+              nome: nomeUnidade,
+              parentId: novoCC.id,
+              tipo: 'obra',
+              nivel: novoCC.nivel + 1,
+              aceitaLancamento: true,
+              ativo: true,
+            });
+            listaAtual.push(novaUnidade);
+          }
+
+          // Obra pai vira nó agrupador
+          await erpRepository.updateCentroCusto(novoCC.id, { aceitaLancamento: false });
+        }
       }
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Não foi possível salvar o centro de custo.');
@@ -332,14 +369,7 @@ export default function CentroCustosPage() {
     if (!obra) return;
 
     setGerandoPadrao(true);
-    const unidadesPadrao = [
-      'IMPOSTOS & TAXAS',
-      'ENGENHARIA & PROJETOS',
-      'MÃO DE OBRA',
-      'MATERIAIS DE CONSTRUÇÃO',
-      'ADMINISTRAÇÃO DA OBRA',
-      'TORRE 1 / OPERAÇÃO',
-    ];
+    const unidadesPadrao = UNIDADES_PADRAO_OBRA;
 
     try {
       let listaAtual = [...centrosTodos];
@@ -580,6 +610,47 @@ export default function CentroCustosPage() {
                     </div>
                   )}
 
+                  {/* Banner de Unidades Padrão Automáticas para Obras vs Centros de Custo Livres */}
+                  {!ehLinha && !editingId && (formTipo === 'obra' || formTipo === 'centro_custo_obra') && (
+                    <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3.5 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
+                          <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                          Unidades Construtivas Padrão da Obra
+                        </span>
+                        <label className="flex items-center gap-1.5 text-[11px] font-bold text-amber-900 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={formAutoGerarUnidades}
+                            onChange={(e) => setFormAutoGerarUnidades(e.target.checked)}
+                            className="rounded border-amber-400 text-brand focus:ring-brand w-3.5 h-3.5"
+                          />
+                          <span>Criar automaticamente</span>
+                        </label>
+                      </div>
+                      <p className="text-[11px] text-amber-800 leading-relaxed">
+                        Como este registro é uma <strong>Obra</strong>, as 5 unidades construtivas fundamentais serão geradas automaticamente como nós-folha para apropriação e rateio orçamentário:
+                      </p>
+                      <div className="flex flex-wrap gap-1.5 pt-0.5">
+                        {UNIDADES_PADRAO_OBRA.map((u) => (
+                          <span
+                            key={u}
+                            className="text-[10px] font-bold bg-white text-amber-900 border border-amber-300 px-2 py-0.5 rounded-md shadow-2xs flex items-center gap-1"
+                          >
+                            <Check className="w-3 h-3 text-amber-600 stroke-[3]" />
+                            {u}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {!ehLinha && (formTipo === 'centro_custo' || formTipo === 'administrativo' || formTipo === 'frota' || formTipo === 'comercial') && (
+                    <div className="bg-indigo-50/70 border border-indigo-200/60 rounded-xl p-3 text-[11px] text-indigo-900 leading-relaxed">
+                      🏢 <strong>Apenas Centro de Custo:</strong> Cadastro corporativo livre. Não gera unidades construtivas automaticamente — você tem total liberdade para criar departamentos ou ramificações conforme sua necessidade.
+                    </div>
+                  )}
+
                   <div>
                     <label className="block text-xs font-semibold text-ink-muted mb-1">
                       {ehLinha ? 'Obra / Centro de Custo Pai' : 'Vínculo Hierárquico (Pai Opcional)'}
@@ -674,14 +745,15 @@ export default function CentroCustosPage() {
                     {ehLinha && (
                       <div className="flex flex-wrap gap-1.5 mt-2">
                         {[
+                          'MÃO DE OBRA',
                           'IMPOSTOS',
                           'ENGENHARIA',
-                          'MÃO DE OBRA',
-                          'MATERIAIS',
-                          'ADMINISTRAÇÃO DA OBRA',
-                          'MÁQUINAS & EQUIPAMENTOS',
+                          'ADMINISTRATIVO',
+                          'DIRETORIA',
                           'TORRE 1',
                           'ÁREA COMUM',
+                          'MATERIAIS',
+                          'INFRAESTRUTURA',
                         ].map((sugestao) => (
                           <button
                             key={sugestao}
@@ -927,7 +999,7 @@ export default function CentroCustosPage() {
                   >
                     <option value="">Selecione uma Obra...</option>
                     {centrosTodos
-                      .filter((c) => !c.parentId && c.ativo)
+                      .filter((c) => !c.parentId && c.ativo && (c.tipo === 'obra' || c.tipo === 'centro_custo_obra'))
                       .map((c) => (
                         <option key={c.id} value={c.id}>
                           {c.codigo} - {c.nome}
@@ -937,15 +1009,14 @@ export default function CentroCustosPage() {
                 </div>
 
                 <div className="bg-surface-muted p-4 rounded-xl border border-black/5 space-y-2">
-                  <span className="text-xs font-bold text-ink-primary block mb-2">Unidades que serão criadas com 1 clique:</span>
+                  <span className="text-xs font-bold text-ink-primary block mb-2">As 5 unidades construtivas padrão que serão geradas:</span>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                     {[
-                      { nome: 'IMPOSTOS & TAXAS', desc: 'ISS, INSS, Alvarás, Taxas' },
-                      { nome: 'ENGENHARIA & PROJETOS', desc: 'Projetos, Laudos, RT, Topografia' },
-                      { nome: 'MÃO DE OBRA', desc: 'Folha, Empreiteiros, CLT' },
-                      { nome: 'MATERIAIS DE CONSTRUÇÃO', desc: 'Insumos, Concreto, Aço' },
-                      { nome: 'ADMINISTRAÇÃO DA OBRA', desc: 'Canteiro, Água, Luz, Segurança' },
-                      { nome: 'TORRE 1 / OPERAÇÃO', desc: 'Unidade física construtiva' },
+                      { nome: 'MÃO DE OBRA', desc: 'Folha, Empreiteiros, Equipe de Obra' },
+                      { nome: 'IMPOSTOS', desc: 'ISS, INSS, Alvarás, Taxas' },
+                      { nome: 'ENGENHARIA', desc: 'Projetos, Laudos, RT, Topografia' },
+                      { nome: 'ADMINISTRATIVO', desc: 'Gestão local, canteiro, logística' },
+                      { nome: 'DIRETORIA', desc: 'Supervisão executiva do empreendimento' },
                     ].map((u) => (
                       <div key={u.nome} className="bg-white p-2.5 rounded-lg border border-black/5 flex items-start gap-2">
                         <Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
