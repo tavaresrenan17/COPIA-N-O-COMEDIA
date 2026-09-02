@@ -131,8 +131,19 @@ function OrcamentosPage() {
 
     setCentrosCusto(ccs);
     setLinhasGestao(lgs);
-    const n2 = pcs.filter(p => p.nivel === 2 || (p.codigo.split('.').length === 2 && !p.aceitaLancamento));
-    setPlanosNivel2(n2.length > 0 ? n2 : pcs.filter(p => p.nivel === 2));
+    /*
+     * Orçamento de obra é de CUSTO — conta de receita não entra.
+     *
+     * A planilha não tem coluna de plano financeiro: toda linha herda o
+     * primeiro item desta lista. Sem o filtro de natureza, o primeiro por
+     * código era "1.1 Receita operacional", e TODO item de orçamento nascia
+     * classificado em receita. O título a pagar apropriado nesse item herdava
+     * a conta de receita e o repositório recusava o salvamento — o erro
+     * aparecia no título, longe de onde nasceu.
+     */
+    const ehCusto = (p: PlanoConta) => p.natureza !== 'receita';
+    const n2 = pcs.filter(p => ehCusto(p) && (p.nivel === 2 || (p.codigo.split('.').length === 2 && !p.aceitaLancamento)));
+    setPlanosNivel2(n2.length > 0 ? n2 : pcs.filter(p => ehCusto(p) && p.nivel === 2));
 
     const raizes = ccs.filter(cc => !cc.parentId);
     if (raizes.length > 0) setFormCcId(raizes[0].id);

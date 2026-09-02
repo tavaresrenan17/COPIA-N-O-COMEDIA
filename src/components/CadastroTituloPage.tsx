@@ -317,6 +317,15 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
   /* ---------------- listas base ---------------- */
   const [pessoas, setPessoas] = useState<Pessoa[]>([]);
   const [planoContas, setPlanoContas] = useState<PlanoConta[]>([]);
+  /*
+   * O cadastro COMPLETO de plano de contas, só para consulta.
+   *
+   * `planoContas` traz apenas folhas (getPlanoContasFolhas filtra por
+   * aceita_lancamento), mas o item de orçamento aponta para conta de NÍVEL 2,
+   * que não é folha. Sem esta lista não há como saber a natureza da conta que
+   * o item carrega.
+   */
+  const [planoContasTodos, setPlanoContasTodos] = useState<PlanoConta[]>([]);
   const [centroCustos, setCentroCustos] = useState<CentroCusto[]>([]);
   /**
    * Árvore completa — inclui os agrupadores, que `centroCustos` não traz.
@@ -441,13 +450,14 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
 
     (async () => {
       setLoadingBase(true);
-      const [pesList, pcList, ccList, ccTodos, ggList, lgList, orcList] = await Promise.all([
+      const [pesList, pcList, pcTodos, ccList, ccTodos, ggList, lgList, orcList] = await Promise.all([
         erpRepository.getPessoas({
           apenasAtivos: true,
           apenasFornecedores: isPagar,
           apenasClientes: !isPagar,
         }),
         erpRepository.getPlanoContasFolhas(),
+        erpRepository.getPlanoContas({ apenasAtivos: true }),
         erpRepository.getCentroCustosFolhas(),
         erpRepository.getCentrosCusto({ apenasAtivos: true }),
         erpRepository.getGruposGestao({ apenasAtivos: true }),
@@ -459,6 +469,7 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
 
       setPessoas(pesList);
       setPlanoContas(pcList);
+      setPlanoContasTodos(pcTodos);
       setCentroCustos(ccList);
       setCentroCustosTodos(ccTodos);
       setGruposGestao(ggList);
@@ -599,6 +610,31 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
       ),
     [planoContas, isPagar]
   );
+
+  /** Toda conta conhecida por id — folhas e níveis superiores juntos. */
+  const planoContaPorId = useMemo(() => {
+    const mapa = new Map<string, PlanoConta>();
+    for (const pc of planoContasTodos) mapa.set(pc.id, pc);
+    for (const pc of planoContas) mapa.set(pc.id, pc);
+    return mapa;
+  }, [planoContasTodos, planoContas]);
+
+  /**
+   * A conta serve para este tipo de título?
+   *
+   * Checa a NATUREZA, não a presença em `planoContasDisponiveis`: aquela lista
+   * só tem folhas, e o item de orçamento aponta para conta de nível 2 — por
+   * pertinência de lista, todo item seria descartado, inclusive o certo.
+   *
+   * Conta que não está no cadastro não classifica título: sem saber a natureza
+   * não dá para afirmar que serve, e é o repositório que recusaria depois.
+   */
+  const planoServeParaOTipo = (id?: string | null): boolean => {
+    if (!id) return false;
+    const pc = planoContaPorId.get(id);
+    if (!pc) return false;
+    return isPagar ? pc.natureza !== 'receita' : pc.natureza === 'receita';
+  };
 
   const planoContaSel = planoContas.find((pc) => pc.id === planoContaId) || null;
 
@@ -943,14 +979,31 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
   /**
    * Plano de contas do título = o do item de orçamento da linha de maior valor.
    *
-   * A tela não mostra mais plano de contas, mas o banco continua gravando —
-   * DRE, dashboard e BI agrupam por ele. Quem define passa a ser o Item de
-   * Orçamento escolhido, que já carrega o seu plano.
+   * DRE, dashboard e BI agrupam por ele. Quem define é o Item de Orçamento
+   * escolhido, que já carrega o seu plano — a conta do campo "Plano
+   * financeiro" da tela só entra quando nenhum item serve.
    */
+  const planosDosItensRateados = rateios
+    .map((r) => ({ r, item: r.orcamentoItemId ? itemOrcamentoPorId.get(r.orcamentoItemId) : undefined }))
+    .filter((x) => !!x.item?.planoContaId);
+
+  /*
+   * Itens de orçamento cuja conta não serve para este tipo de título.
+   *
+   * Existem de verdade: a planilha de orçamento não tem coluna de plano
+   * financeiro e herdava o primeiro plano nível 2 por código, que era
+   * "1.1 Receita operacional". Item assim classificava o título a pagar em
+   * receita, e o repositório recusava o salvamento com um erro que aparecia
+   * aqui sem explicar de onde vinha.
+   */
+  const itensDeRateioComPlanoIncompativel = planosDosItensRateados.filter(
+    (x) => !planoServeParaOTipo(x.item!.planoContaId)
+  );
+
   const planoContaDominante = (() => {
-    const comItem = rateios
-      .map((r) => ({ r, item: r.orcamentoItemId ? itemOrcamentoPorId.get(r.orcamentoItemId) : undefined }))
-      .filter((x) => !!x.item?.planoContaId);
+    const comItem = planosDosItensRateados.filter((x) =>
+      planoServeParaOTipo(x.item!.planoContaId)
+    );
 
     if (comItem.length > 0) {
       const maior = comItem.reduce((a, b) =>
@@ -958,7 +1011,24 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
       );
       return maior.item!.planoContaId;
     }
-    return planoContaId || (planoContasDisponiveis.length > 0 ? planoContasDisponiveis[0].id : '');
+    // Sem item aproveitável, vale a conta escolhida na tela — desde que ela
+    // própria seja compatível; a guarda de natureza só avisa, não limpa.
+    if (planoServeParaOTipo(planoContaId)) return planoContaId;
+    return planoContasDisponiveis.length > 0 ? planoContasDisponiveis[0].id : '';
+  })();
+
+  /** Como avisar o usuário do que foi descartado — nunca trocar em silêncio. */
+  const avisoPlanoDeItemDescartado = (() => {
+    if (itensDeRateioComPlanoIncompativel.length === 0) return null;
+    const contas = [
+      ...new Set(
+        itensDeRateioComPlanoIncompativel.map((x) => {
+          const pc = planoContaPorId.get(x.item!.planoContaId!);
+          return pc ? `${pc.codigo} ${pc.nome} (${pc.natureza})` : 'conta desconhecida';
+        })
+      ),
+    ];
+    return contas.join(', ');
   })();
 
   /** Primeira unidade da obra — o destino padrão ao criar/trocar uma linha. */
@@ -1881,6 +1951,15 @@ export function CadastroTituloPage({ tipo, tituloId }: CadastroTituloPageProps) 
                     <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                     <span>
                       Conta incompatível com títulos a {isPagar ? 'pagar' : 'receber'}: <strong>{planoContaIncompativel}</strong>. Selecione uma conta de {isPagar ? 'despesa/custo' : 'receita'}.
+                    </span>
+                  </div>
+                )}
+
+                {avisoPlanoDeItemDescartado && (
+                  <div className="mt-1.5 p-2 bg-amber-50 border border-amber-300 rounded text-amber-800 text-[11px] flex items-start gap-1.5 font-medium">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                    <span>
+                      Item de orçamento classificado em <strong>{avisoPlanoDeItemDescartado}</strong>, que não serve para título a {isPagar ? 'pagar' : 'receber'}. O título será gravado na conta acima. Corrija o item no orçamento para o rateio classificar certo.
                     </span>
                   </div>
                 )}

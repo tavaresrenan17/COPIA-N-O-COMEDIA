@@ -47,3 +47,6 @@ coverage/
 
 # Configuração local do Claude Code (regras de permissão da máquina)
 .claude/settings.local.json
+
+# Exports do banco do cliente. Contem dado financeiro real — nunca versionar.
+backup-supabase-*/
