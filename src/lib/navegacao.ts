@@ -148,9 +148,9 @@ export function departamentoAtivo(caminho: string): DepartmentConfig | undefined
 /**
  * As seções do menu, já sem nada desligado.
  *
- * Uma seção por departamento ativo, mais "Sistema" no fim. Módulo `inativo`
- * some junto com o departamento `inativo`: a navegação passa a mostrar só o que
- * funciona, em vez de listar telas que não abrem.
+ * Uma seção por departamento ativo, e nada mais. Módulo `inativo` some junto
+ * com o departamento `inativo`: a navegação passa a mostrar só o que funciona,
+ * em vez de listar telas que não abrem.
  */
 export function secoesNavegacao(): SecaoNavegacao[] {
   const secoes: SecaoNavegacao[] = [];
@@ -186,24 +186,22 @@ export function secoesNavegacao(): SecaoNavegacao[] {
     if (itens.length > 0) secoes.push({ id, titulo: dept.name, itens });
   }
 
-  secoes.push({
-    id: 'sistema',
-    titulo: 'Sistema',
-    itens: [
-      { href: '/departamentos', label: 'Departamentos', Icon: Building2, secao: 'Sistema' },
-      { href: '/relatorios', label: 'Relatórios', Icon: BarChart3, secao: 'Sistema' },
-    ].filter((i) => !jaUsadas.has(i.href)),
-  });
-
   return secoes.filter((s) => s.itens.length > 0);
 }
 
 /**
- * Telas que existem e funcionam, mas não têm entrada própria no menu — moram
- * dentro de outra tela. Ficam de fora da sidebar e DENTRO da busca: quem digita
- * "executivo" espera chegar ao dashboard, não receber "nenhuma tela encontrada".
+ * Telas que existem e funcionam, mas não têm entrada própria no menu. Ficam de
+ * fora da sidebar e DENTRO da busca: quem digita "executivo" espera chegar ao
+ * dashboard, não receber "nenhuma tela encontrada".
+ *
+ * O hub `/departamentos` e o índice `/relatorios` estão aqui porque a seção
+ * "Sistema" saiu da sidebar — a sidebar já lista cada departamento direto, o
+ * que tornava o hub um clique a mais para o mesmo lugar. As telas continuam
+ * de pé e continuam acháveis pela busca.
  */
 const TELAS_SEM_MENU: { href: string; Icon: LucideIcon }[] = [
+  { href: '/departamentos', Icon: Building2 },
+  { href: '/relatorios', Icon: BarChart3 },
   { href: '/relatorios/executivo', Icon: BarChart3 },
   { href: '/orcamentos/acompanhamento', Icon: BarChart3 },
   { href: '/perfil', Icon: UserRound },

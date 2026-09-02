@@ -1,15 +1,17 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { 
+import {
   PlanoConta, 
   CentroCusto, 
+  TipoCentroCusto,
   erpRepository, 
   ComprometidoTituloItem, 
   RealizadoMovimentoItem 
 } from '@/data';
 import { formatCurrency } from '@/lib/formatters';
 import { proximoCodigo } from '@/lib/codigos';
+import { ehTipoObra } from '@/lib/centroCusto';
 import { 
   Plus, 
   Trash2, 
@@ -69,6 +71,11 @@ interface OrcamentoSpreadsheetEditorProps {
   subCentrosCusto?: CentroCusto[];
   obraId?: string;
   obraNome?: string;
+  /**
+   * Tipo do centro de custo vinculado ao orçamento. Decide se "Nova Unidade
+   * Construtiva" faz sentido aqui — ver `podeCriarUnidade`.
+   */
+  obraTipo?: TipoCentroCusto;
   orcamentoId?: string;
   initialItens?: any[];
   isReadonly?: boolean;
@@ -93,6 +100,7 @@ export function OrcamentoSpreadsheetEditor({
   subCentrosCusto = [],
   obraId,
   obraNome,
+  obraTipo,
   orcamentoId,
   initialItens = [],
   isReadonly = false,
@@ -112,6 +120,17 @@ export function OrcamentoSpreadsheetEditor({
   const [modalApropriacaoRow, setModalApropriacaoRow] = useState<GridRowItem | null>(null);
   const [modalTab, setModalTab] = useState<'todos' | 'comprometido' | 'realizado'>('todos');
   const [modalSearch, setModalSearch] = useState('');
+
+  /*
+   * Unidade Construtiva só nasce dentro de OBRA.
+   *
+   * O orçamento se prende a qualquer centro de custo raiz — a tela de
+   * Orçamentos monta a lista por `!cc.parentId`, sem olhar o tipo. Logo um
+   * orçamento de centro de custo administrativo, de frota ou comercial abria
+   * o mesmo botão e criava lá dentro um filho `tipo: 'obra'`, sujando a
+   * árvore com unidade construtiva em ramo que não é obra.
+   */
+  const podeCriarUnidade = !isReadonly && ehTipoObra(obraTipo);
 
   useEffect(() => {
     setUnidadesLocais(subCentrosCusto);
@@ -256,7 +275,7 @@ export function OrcamentoSpreadsheetEditor({
   }
 
   async function handleCriarUnidadeRapida(nome: string) {
-    if (!nome.trim()) return;
+    if (!nome.trim() || !podeCriarUnidade) return;
     setCriandoUnidade(true);
     try {
       const todos = await erpRepository.getCentrosCusto({ apenasAtivos: false });
@@ -338,27 +357,27 @@ export function OrcamentoSpreadsheetEditor({
         </div>
 
         <div className="flex items-center gap-2">
-          {!isReadonly && (
-            <>
-              <button
-                type="button"
-                onClick={() => setModalNovaUnidadeOpen(true)}
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-surface border border-purple-200 text-purple-700 hover:bg-purple-50 rounded-xl text-xs font-semibold shadow-soft transition-all"
-                title="Cadastrar nova Unidade Construtiva para esta obra"
-              >
-                <Building2 className="w-4 h-4 text-purple-600" />
-                <span>+ Nova Unidade</span>
-              </button>
+          {podeCriarUnidade && (
+            <button
+              type="button"
+              onClick={() => setModalNovaUnidadeOpen(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-surface border border-purple-200 text-purple-700 hover:bg-purple-50 rounded-xl text-xs font-semibold shadow-soft transition-all"
+              title="Cadastrar nova Unidade Construtiva para esta obra"
+            >
+              <Building2 className="w-4 h-4 text-purple-600" />
+              <span>+ Nova Unidade</span>
+            </button>
+          )}
 
-              <button
-                type="button"
-                onClick={handleAddRow}
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-surface border border-black/10 text-ink-primary hover:bg-black/5 rounded-xl text-xs font-semibold shadow-soft transition-all"
-              >
-                <Plus className="w-4 h-4 text-brand" />
-                <span>Adicionar Linha</span>
-              </button>
-            </>
+          {!isReadonly && (
+            <button
+              type="button"
+              onClick={handleAddRow}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-surface border border-black/10 text-ink-primary hover:bg-black/5 rounded-xl text-xs font-semibold shadow-soft transition-all"
+            >
+              <Plus className="w-4 h-4 text-brand" />
+              <span>Adicionar Linha</span>
+            </button>
           )}
 
           {onCancel && (
@@ -1071,7 +1090,7 @@ export function OrcamentoSpreadsheetEditor({
       )}
 
       {/* MODAL: CRIAR NOVA UNIDADE CONSTRUTIVA RÁPIDA */}
-      {modalNovaUnidadeOpen && (
+      {modalNovaUnidadeOpen && podeCriarUnidade && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <div className="bg-surface rounded-2xl p-6 w-full max-w-md shadow-2xl border border-black/10 space-y-4">
             <div className="flex items-center justify-between border-b border-black/5 pb-3">

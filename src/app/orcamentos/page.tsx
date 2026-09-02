@@ -111,6 +111,17 @@ function OrcamentosPage() {
     ? centrosCusto.filter(cc => cc.parentId === activeOrcamento.centroCustoId)
     : [];
 
+  /*
+   * O centro de custo vinculado ao orçamento aberto.
+   *
+   * `obras` acima é "todo nó raiz", sem filtrar tipo — então o orçamento pode
+   * estar preso a um centro de custo administrativo, de frota ou comercial. O
+   * editor precisa do tipo para saber se cabe criar Unidade Construtiva ali.
+   */
+  const obraDoOrcamentoAtivo = activeOrcamento
+    ? centrosCusto.find(cc => cc.id === activeOrcamento.centroCustoId)
+    : undefined;
+
   async function loadAuxiliaryData() {
     const [ccs, pcs, lgs] = await Promise.all([
       erpRepository.getCentrosCusto({ apenasAtivos: true }),
@@ -458,6 +469,7 @@ function OrcamentosPage() {
             subCentrosCusto={unidadesDaObraAtiva}
             obraId={activeOrcamento.centroCustoId}
             obraNome={activeOrcamento.centroCustoNome}
+            obraTipo={obraDoOrcamentoAtivo?.tipo}
             orcamentoId={activeOrcamento.id}
             initialItens={activeOrcamento.itens}
             isReadonly={activeOrcamento.status === 'aprovado' && edicaoLiberadaId !== activeOrcamento.id}

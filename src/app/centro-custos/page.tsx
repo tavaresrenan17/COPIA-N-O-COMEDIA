@@ -7,6 +7,7 @@ import { Search, Plus, X, PieChart, Calendar, Building2, Layers, Sparkles, Check
 import { motion, AnimatePresence } from 'framer-motion';
 import { proximoCodigo } from '@/lib/codigos';
 import { descendentesDe, recalcularNiveis } from '@/lib/arvore';
+import { ehTipoObra } from '@/lib/centroCusto';
 
 const UNIDADES_PADRAO_OBRA = [
   'MÃO DE OBRA',
@@ -208,7 +209,7 @@ export default function CentroCustosPage() {
         centroCustoSalvoId = novoCC.id;
 
         // Se for uma Obra nova (raiz) e estiver configurada para gerar unidades padrão:
-        const ehObra = formTipo === 'obra' || formTipo === 'centro_custo_obra';
+        const ehObra = ehTipoObra(formTipo);
         if (ehObra && !formParentId && formAutoGerarUnidades) {
           let listaAtual = [...centrosTodos, novoCC];
           for (const nomeUnidade of UNIDADES_PADRAO_OBRA) {
@@ -611,7 +612,7 @@ export default function CentroCustosPage() {
                   )}
 
                   {/* Banner de Unidades Padrão Automáticas para Obras vs Centros de Custo Livres */}
-                  {!ehLinha && !editingId && (formTipo === 'obra' || formTipo === 'centro_custo_obra') && (
+                  {!ehLinha && !editingId && ehTipoObra(formTipo) && (
                     <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3.5 space-y-2">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
@@ -999,7 +1000,7 @@ export default function CentroCustosPage() {
                   >
                     <option value="">Selecione uma Obra...</option>
                     {centrosTodos
-                      .filter((c) => !c.parentId && c.ativo && (c.tipo === 'obra' || c.tipo === 'centro_custo_obra'))
+                      .filter((c) => !c.parentId && c.ativo && ehTipoObra(c.tipo))
                       .map((c) => (
                         <option key={c.id} value={c.id}>
                           {c.codigo} - {c.nome}
