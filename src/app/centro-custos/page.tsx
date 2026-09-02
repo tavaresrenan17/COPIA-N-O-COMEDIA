@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { proximoCodigo } from '@/lib/codigos';
 import { descendentesDe, recalcularNiveis } from '@/lib/arvore';
 
-export const UNIDADES_PADRAO_OBRA = [
+const UNIDADES_PADRAO_OBRA = [
   'MÃO DE OBRA',
   'IMPOSTOS',
   'ENGENHARIA',
