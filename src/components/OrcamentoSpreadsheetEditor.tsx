@@ -11,7 +11,7 @@ import {
 } from '@/data';
 import { formatCurrency } from '@/lib/formatters';
 import { proximoCodigo } from '@/lib/codigos';
-import { ehTipoObra } from '@/lib/centroCusto';
+import { aceitaUnidadeLivre } from '@/lib/centroCusto';
 import { 
   Plus, 
   Trash2, 
@@ -122,15 +122,16 @@ export function OrcamentoSpreadsheetEditor({
   const [modalSearch, setModalSearch] = useState('');
 
   /*
-   * Unidade Construtiva só nasce dentro de OBRA.
+   * Unidade Construtiva à mão só no híbrido `centro_custo_obra`.
    *
-   * O orçamento se prende a qualquer centro de custo raiz — a tela de
-   * Orçamentos monta a lista por `!cc.parentId`, sem olhar o tipo. Logo um
-   * orçamento de centro de custo administrativo, de frota ou comercial abria
-   * o mesmo botão e criava lá dentro um filho `tipo: 'obra'`, sujando a
-   * árvore com unidade construtiva em ramo que não é obra.
+   * O tipo `obra` tem lista FIXA — as unidades nascem com a obra e a lista é
+   * fechada, então criar mais uma aqui contraria a regra. E o orçamento se
+   * prende a qualquer centro de custo raiz (a tela de Orçamentos monta a
+   * lista por `!cc.parentId`, sem olhar o tipo), então sem esta guarda o
+   * botão também aparecia em centro de custo administrativo, de frota ou
+   * comercial — que não têm unidade construtiva nenhuma.
    */
-  const podeCriarUnidade = !isReadonly && ehTipoObra(obraTipo);
+  const podeCriarUnidade = !isReadonly && aceitaUnidadeLivre(obraTipo);
 
   useEffect(() => {
     setUnidadesLocais(subCentrosCusto);

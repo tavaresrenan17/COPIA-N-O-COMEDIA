@@ -1,17 +1,45 @@
 import type { TipoCentroCusto } from '@/data';
 
 /**
- * O centro de custo é uma OBRA?
+ * As Unidades Construtivas fixas de toda obra.
  *
- * São dois tipos, não um: `obra` e `centro_custo_obra`. A regra estava escrita
- * à mão em cada tela que precisava dela — e uma quarta cópia, no editor de
- * orçamento, é o que deixava o botão "+ Nova Unidade" aparecer em centro de
- * custo administrativo, de frota ou comercial.
+ * Lista fechada, definida pelo negócio — não é sugestão nem ponto de partida.
+ * Toda obra nasce com estas e só com estas.
  *
- * Unidade Construtiva (MÃO DE OBRA, IMPOSTOS, TORRE 1...) só existe dentro de
- * obra: é o que a geração automática de unidades padrão em Centro de Custos já
- * assumia.
+ * Mora aqui, e não na tela de Centro de Custos, por dois motivos: é regra de
+ * negócio consumida por mais de uma tela, e exportá-la de um `page.tsx` é
+ * proibido pelo Next.js — foi o que derrubou o build da Vercel.
  */
-export function ehTipoObra(tipo?: TipoCentroCusto | null): boolean {
-  return tipo === 'obra' || tipo === 'centro_custo_obra';
+export const UNIDADES_PADRAO_OBRA = [
+  'MÃO DE OBRA',
+  'IMPOSTOS',
+  'ENGENHARIA',
+  'ADMINISTRATIVO',
+  'DIRETORIA',
+  'TRIAGEM',
+];
+
+/**
+ * O centro de custo tem lista FIXA de Unidades Construtivas?
+ *
+ * Só o tipo `obra`. As unidades saem de `UNIDADES_PADRAO_OBRA`, nascem junto
+ * com a obra e não se acrescenta outra pela tela de Orçamento — é o que
+ * `aceitaUnidadeLivre` recusa.
+ */
+export function temUnidadesFixas(tipo?: TipoCentroCusto | null): boolean {
+  return tipo === 'obra';
+}
+
+/**
+ * O centro de custo aceita Unidade Construtiva criada à mão?
+ *
+ * Só o híbrido `centro_custo_obra`, que opera como obra física E como centro
+ * de custo financeiro autônomo: ali as unidades são do desenho de cada
+ * operação (TORRE 1, ÁREA COMUM...), não uma lista fechada.
+ *
+ * Os demais tipos — `obra` (lista fixa), `centro_custo`, `administrativo`,
+ * `frota` e `comercial` (que não têm unidade construtiva nenhuma) — recusam.
+ */
+export function aceitaUnidadeLivre(tipo?: TipoCentroCusto | null): boolean {
+  return tipo === 'centro_custo_obra';
 }

@@ -7,15 +7,7 @@ import { Search, Plus, X, PieChart, Calendar, Building2, Layers, Sparkles, Check
 import { motion, AnimatePresence } from 'framer-motion';
 import { proximoCodigo } from '@/lib/codigos';
 import { descendentesDe, recalcularNiveis } from '@/lib/arvore';
-import { ehTipoObra } from '@/lib/centroCusto';
-
-const UNIDADES_PADRAO_OBRA = [
-  'MÃO DE OBRA',
-  'IMPOSTOS',
-  'ENGENHARIA',
-  'ADMINISTRATIVO',
-  'DIRETORIA',
-];
+import { UNIDADES_PADRAO_OBRA, temUnidadesFixas } from '@/lib/centroCusto';
 
 export default function CentroCustosPage() {
   const [centrosAtivos, setCentrosAtivos] = useState<CentroCusto[]>([]);
@@ -40,7 +32,6 @@ export default function CentroCustosPage() {
   const [formNome, setFormNome] = useState('');
   const [formParentId, setFormParentId] = useState<string>('');
   const [formTipo, setFormTipo] = useState<TipoCentroCusto>('centro_custo_obra');
-  const [formAutoGerarUnidades, setFormAutoGerarUnidades] = useState(true);
   const [formGrupoGestaoId, setFormGrupoGestaoId] = useState<string>('');
   const [formLinhaGestaoId, setFormLinhaGestaoId] = useState<string>('');
   /** Linhas de gestão do Grupo Macro. Vazio + global = vale para todas. */
@@ -94,7 +85,6 @@ export default function CentroCustosPage() {
       setFormParentId(parent.id);
       setFormTipo((parent as any).tipo || 'obra');
       setFormCodigo(proximoCodigo(centrosTodos, parent));
-      setFormAutoGerarUnidades(false);
 
       // Herda automaticamente o Grupo e a Linha de Gestão da Obra de origem
       const linhaPai = getLinhaVinculadaDoCentroOuAncestrais(parent.id);
@@ -112,7 +102,6 @@ export default function CentroCustosPage() {
       setFormParentId('');
       setFormCodigo(proximoCodigo(centrosTodos));
       setFormTipo('centro_custo_obra');
-      setFormAutoGerarUnidades(true);
       setFormGrupoGestaoId('');
       setFormLinhaGestaoId('');
       setFormLinhasIds([]);
@@ -133,7 +122,6 @@ export default function CentroCustosPage() {
     setFormNome(item.nome);
     setFormParentId(item.parentId || '');
     setFormTipo(item.tipo);
-    setFormAutoGerarUnidades(false);
     setFormAceitaLancamento(item.aceitaLancamento);
     setFormDataInicio(item.dataInicio || '');
     setFormDataFim(item.dataFim || '');
@@ -208,9 +196,14 @@ export default function CentroCustosPage() {
         const novoCC = await erpRepository.createCentroCusto(payload);
         centroCustoSalvoId = novoCC.id;
 
-        // Se for uma Obra nova (raiz) e estiver configurada para gerar unidades padrão:
-        const ehObra = ehTipoObra(formTipo);
-        if (ehObra && !formParentId && formAutoGerarUnidades) {
+        /*
+         * Obra nova (raiz) nasce com as Unidades Construtivas fixas — sempre.
+         *
+         * Não é mais opcional nem vale para o híbrido `centro_custo_obra`: a
+         * lista fechada é do tipo `obra`, e o híbrido monta as unidades dele
+         * à mão, pelo editor de orçamento.
+         */
+        if (temUnidadesFixas(formTipo) && !formParentId) {
           let listaAtual = [...centrosTodos, novoCC];
           for (const nomeUnidade of UNIDADES_PADRAO_OBRA) {
             const cod = proximoCodigo(
@@ -611,26 +604,17 @@ export default function CentroCustosPage() {
                     </div>
                   )}
 
-                  {/* Banner de Unidades Padrão Automáticas para Obras vs Centros de Custo Livres */}
-                  {!ehLinha && !editingId && ehTipoObra(formTipo) && (
+                  {/* Banner das Unidades Construtivas fixas — só o tipo Obra as tem. */}
+                  {!ehLinha && !editingId && temUnidadesFixas(formTipo) && (
                     <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3.5 space-y-2">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
                           <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-                          Unidades Construtivas Padrão da Obra
+                          Unidades Construtivas Fixas da Obra
                         </span>
-                        <label className="flex items-center gap-1.5 text-[11px] font-bold text-amber-900 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={formAutoGerarUnidades}
-                            onChange={(e) => setFormAutoGerarUnidades(e.target.checked)}
-                            className="rounded border-amber-400 text-brand focus:ring-brand w-3.5 h-3.5"
-                          />
-                          <span>Criar automaticamente</span>
-                        </label>
                       </div>
                       <p className="text-[11px] text-amber-800 leading-relaxed">
-                        Como este registro é uma <strong>Obra</strong>, as 5 unidades construtivas fundamentais serão geradas automaticamente como nós-folha para apropriação e rateio orçamentário:
+                        Como este registro é uma <strong>Obra</strong>, as {UNIDADES_PADRAO_OBRA.length} unidades construtivas fixas serão criadas como nós-folha para apropriação e rateio orçamentário. A lista é fechada:
                       </p>
                       <div className="flex flex-wrap gap-1.5 pt-0.5">
                         {UNIDADES_PADRAO_OBRA.map((u) => (
@@ -1000,7 +984,7 @@ export default function CentroCustosPage() {
                   >
                     <option value="">Selecione uma Obra...</option>
                     {centrosTodos
-                      .filter((c) => !c.parentId && c.ativo && ehTipoObra(c.tipo))
+                      .filter((c) => !c.parentId && c.ativo && temUnidadesFixas(c.tipo))
                       .map((c) => (
                         <option key={c.id} value={c.id}>
                           {c.codigo} - {c.nome}
