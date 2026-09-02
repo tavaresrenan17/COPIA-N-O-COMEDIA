@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS public.centro_custo (
   tipo TEXT NOT NULL CHECK (tipo IN ('centro_custo', 'obra', 'centro_custo_obra', 'administrativo', 'frota', 'comercial')),
   nivel INT NOT NULL CHECK (nivel > 0),
   aceita_lancamento BOOLEAN DEFAULT true NOT NULL,
+  escopo_global BOOLEAN DEFAULT false NOT NULL,
   data_inicio DATE,
   data_fim DATE,
   ativo BOOLEAN DEFAULT true NOT NULL,
@@ -161,6 +162,16 @@ CREATE TABLE IF NOT EXISTS public.linha_gestao (
 
 CREATE INDEX IF NOT EXISTS idx_linha_gestao_grupo ON public.linha_gestao(grupo_gestao_id);
 CREATE INDEX IF NOT EXISTS idx_linha_gestao_centro_custo ON public.linha_gestao(centro_custo_id);
+
+CREATE TABLE IF NOT EXISTS public.centro_custo_linha_gestao (
+  centro_custo_id UUID NOT NULL REFERENCES public.centro_custo(id) ON DELETE CASCADE,
+  linha_gestao_id UUID NOT NULL REFERENCES public.linha_gestao(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  PRIMARY KEY (centro_custo_id, linha_gestao_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ccl_centro_custo ON public.centro_custo_linha_gestao(centro_custo_id);
+CREATE INDEX IF NOT EXISTS idx_ccl_linha_gestao ON public.centro_custo_linha_gestao(linha_gestao_id);
 
 -- ------------------------------------------------------------------------------
 -- 6. TÍTULO (motor financeiro único: 'P' = pagar, 'R' = receber)
@@ -344,7 +355,7 @@ BEGIN
     FROM public.movimento
    WHERE parcela_id = NEW.parcela_id
      AND estornado = false
-     AND id <> NEW.id;
+     AND (NEW.id IS NULL OR id <> NEW.id);
 
   IF v_ja_baixado + NEW.valor_pago > v_valor_parcela + 0.005 THEN
     RAISE EXCEPTION
@@ -818,12 +829,7 @@ DO $$
 DECLARE t TEXT;
 BEGIN
   FOREACH t IN ARRAY ARRAY[
-    'plano_conta','centro_custo','pessoa','conta_bancaria','grupo_gestao','linha_gestao',
-    -- titulo_rateio_gestao FALTAVA nesta lista. A tabela é criada logo acima, mas
-    -- nunca ganhava política: num projeto novo ela nascia com RLS ligado e zero
-    -- políticas, ou seja, negando tudo. O app gravava pelo SQL Editor e lia
-    -- vazio pela chave anônima — a aba Alocação de Títulos abria em branco sem
-    -- erro nenhum. Foi o que aconteceu no projeto jsrlytfnbqpudwkcrybn.
+    'plano_conta','centro_custo','centro_custo_linha_gestao','pessoa','conta_bancaria','grupo_gestao','linha_gestao',
     'titulo','titulo_parcela','titulo_rateio','titulo_rateio_gestao','movimento',
     'orcamento','orcamento_item','orcamento_item_periodo','feriado',
     'recorrencia','recorrencia_rateio','recorrencia_ocorrencia','recorrencia_reajuste','recorrencia_log_execucao',
