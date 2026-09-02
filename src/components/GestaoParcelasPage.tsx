@@ -11,7 +11,7 @@ import {
   TipoTitulo,
   Movimento 
 } from '@/data';
-import { formatCurrency } from '@/lib/formatters';
+import { formatCurrency, formatDate } from '@/lib/formatters';
 import Link from 'next/link';
 import { BaixaParcelaModal } from './BaixaParcelaModal';
 import { BaixaEmLoteModal } from './BaixaEmLoteModal';
@@ -52,6 +52,8 @@ interface TituloGroup {
   valorBrutoCentavos: number;
   saldoTotalCentavos: number;
   dataVencimento: string;
+  /** Do título, não da parcela — é a mesma para todas as parcelas dele. */
+  dataEmissao: string;
   statusConsolidado: StatusParcela;
   diasAtrasoMax: number;
   qtdParcelas: number;
@@ -213,6 +215,7 @@ export function GestaoParcelasPage({ tipo }: GestaoParcelasPageProps) {
         valorBrutoCentavos,
         saldoTotalCentavos,
         dataVencimento: pendente.dataVencimento,
+        dataEmissao: first.dataEmissao,
         statusConsolidado,
         diasAtrasoMax: maxAtraso,
         qtdParcelas: first.qtdParcelas || list.length,
@@ -447,6 +450,7 @@ export function GestaoParcelasPage({ tipo }: GestaoParcelasPageProps) {
               <thead>
                 <tr className="bg-surface-muted text-[11px] font-bold uppercase tracking-wider text-ink-muted border-b border-black/[0.05]">
                   <th className="py-3.5 px-4 font-mono">Código</th>
+                  <th className="py-3.5 px-4">Emissão</th>
                   <th className="py-3.5 px-4">Vencimento</th>
                   <th className="py-3.5 px-4">{isRecebimento ? 'Devedor' : 'Credor'}</th>
                   <th className="py-3.5 px-4">Descrição</th>
@@ -476,10 +480,17 @@ export function GestaoParcelasPage({ tipo }: GestaoParcelasPageProps) {
                           </span>
                         </td>
 
+                        {/* Emissão */}
+                        <td className="py-3.5 px-4">
+                          <span className="font-mono text-ink-muted">
+                            {formatDate(tg.dataEmissao)}
+                          </span>
+                        </td>
+
                         {/* Vencimento */}
                         <td className="py-3.5 px-4">
                           <span className={`font-bold font-mono ${isVencido ? 'text-rose-600' : 'text-ink-primary'}`}>
-                            {tg.dataVencimento}
+                            {formatDate(tg.dataVencimento)}
                           </span>
                           {tg.diasAtrasoMax > 0 && (
                             <span className="block text-[10px] font-bold text-rose-600">
@@ -571,7 +582,7 @@ export function GestaoParcelasPage({ tipo }: GestaoParcelasPageProps) {
                       {/* GAVETA DE PARCELAS DIVIDIDAS DO TÍTULO */}
                       {isExpanded && (
                         <tr className="bg-surface-muted border-b border-black/5">
-                          <td colSpan={7} className="p-4">
+                          <td colSpan={8} className="p-4">
                             <div className="bg-surface rounded-2xl p-4 border border-black/10 space-y-3 shadow-sm">
                               <div className="flex items-center justify-between border-b border-black/5 pb-2">
                                 <h4 className="text-xs font-bold text-brand uppercase tracking-wider flex items-center gap-2">
@@ -595,7 +606,7 @@ export function GestaoParcelasPage({ tipo }: GestaoParcelasPageProps) {
                                       <span className="font-bold text-brand font-mono bg-brand/10 px-2 py-0.5 rounded">
                                         Parcela {parc.parcelaNumero}/{tg.qtdParcelas}
                                       </span>
-                                      <span className="font-semibold text-ink-primary">Vencimento: {parc.dataVencimento}</span>
+                                      <span className="font-semibold text-ink-primary">Vencimento: {formatDate(parc.dataVencimento)}</span>
                                       <span className="font-mono text-ink-muted font-bold">{formatCurrency(parc.valorCentavos)}</span>
                                     </div>
 

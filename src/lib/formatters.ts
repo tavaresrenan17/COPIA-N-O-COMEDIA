@@ -10,8 +10,28 @@ export function formatCurrency(centavos: number): string {
   }).format(reais);
 }
 
+/**
+ * Data para exibicao, em dd/mm/aaaa.
+ *
+ * "2026-09-15" NAO passa por `new Date()`.
+ *
+ * O JS le uma string so-data como meia-noite UTC, e o Intl formata no fuso
+ * local. Em America/Sao_Paulo (UTC-3) isso volta um dia: o vencimento gravado
+ * como 15/09 aparecia 14/09 na tela. Vale para toda data do banco, que e
+ * `DATE` puro, sem hora nem fuso — nao ha o que converter.
+ *
+ * Valor COM hora (createdAt, updatedAt) continua no caminho do `Date`: ali o
+ * instante e real e a conversao para o fuso local e o comportamento certo.
+ */
 export function formatDate(dateString: string): string {
   if (!dateString) return '';
+
+  const soData = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateString);
+  if (soData) {
+    const [, ano, mes, dia] = soData;
+    return `${dia}/${mes}/${ano}`;
+  }
+
   const date = new Date(dateString);
   if (isNaN(date.getTime())) return dateString;
   return new Intl.DateTimeFormat('pt-BR', {
