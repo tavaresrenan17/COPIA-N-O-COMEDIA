@@ -3,13 +3,35 @@
 import { useEffect, useState } from 'react';
 import { erpRepository, CentroCusto, TipoCentroCusto, Subempresa, GrupoGestao, LinhaGestao } from '@/data';
 import { TreeView, TreeNode } from '@/components/TreeView';
-import { Search, Plus, X, PieChart, Calendar, Building2, Layers, Sparkles, Check } from 'lucide-react';
+import { ItensOrcamentoView } from '@/components/ItensOrcamentoView';
+import { Search, Plus, X, PieChart, Calendar, Building2, Layers, Sparkles, Check, Network, Table } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { proximoCodigo } from '@/lib/codigos';
 import { descendentesDe, recalcularNiveis } from '@/lib/arvore';
 import { UNIDADES_PADRAO_OBRA, temUnidadesFixas } from '@/lib/centroCusto';
 
 export default function CentroCustosPage() {
+  /** `estrutura` = a árvore de centros de custo; `itens` = a planilha por unidade. */
+  const [abaAtiva, setAbaAtiva] = useState<'estrutura' | 'itens'>('estrutura');
+  /*
+   * A aba de itens tem rascunho não salvo?
+   *
+   * Trocar de aba desmonta a view e o rascunho some. Quem sabe disso é a view;
+   * quem pode perguntar antes é esta tela, porque a troca acontece aqui.
+   */
+  const [itensSujo, setItensSujo] = useState(false);
+
+  const trocarAba = (nova: 'estrutura' | 'itens') => {
+    if (nova === abaAtiva) return;
+    if (
+      abaAtiva === 'itens' &&
+      itensSujo &&
+      !confirm('Há itens de orçamento não salvos. Sair desta aba vai descartá-los. Continuar?')
+    ) {
+      return;
+    }
+    setAbaAtiva(nova);
+  };
   const [centrosAtivos, setCentrosAtivos] = useState<CentroCusto[]>([]);
   const [gruposGestao, setGruposGestao] = useState<GrupoGestao[]>([]);
   const [linhasGestao, setLinhasGestao] = useState<LinhaGestao[]>([]);
@@ -411,7 +433,7 @@ export default function CentroCustosPage() {
             <strong>MÃO DE OBRA</strong>, <strong>MATERIAIS</strong> e <strong>TORRES</strong>) para amarração na aba <strong>Apropriação</strong> e orçamento.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className={`items-center gap-2 ${abaAtiva === 'estrutura' ? 'flex' : 'hidden'}`}>
           <button
             onClick={() => {
               const raizes = centrosTodos.filter((c) => !c.parentId && c.ativo);
@@ -434,6 +456,37 @@ export default function CentroCustosPage() {
         </div>
       </div>
 
+      {/* Abas: a estrutura da árvore e a planilha de itens por unidade */}
+      <div className="flex items-center gap-2 bg-surface p-1.5 rounded-2xl shadow-soft border border-black/[0.04] w-fit">
+        <button
+          onClick={() => trocarAba('estrutura')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+            abaAtiva === 'estrutura'
+              ? 'bg-brand text-white shadow-md'
+              : 'text-ink-muted hover:text-ink-primary hover:bg-black/5'
+          }`}
+        >
+          <Network className="w-4 h-4" />
+          <span>Estrutura</span>
+        </button>
+
+        <button
+          onClick={() => trocarAba('itens')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+            abaAtiva === 'itens'
+              ? 'bg-brand text-white shadow-md'
+              : 'text-ink-muted hover:text-ink-primary hover:bg-black/5'
+          }`}
+        >
+          <Table className="w-4 h-4" />
+          <span>Itens de Orçamento</span>
+        </button>
+      </div>
+
+      {abaAtiva === 'itens' ? (
+        <ItensOrcamentoView centros={centrosTodos} onAlterou={loadData} onSujoChange={setItensSujo} />
+      ) : (
+      <>
       {/* Busca, Filtro por Tipo e Ativos */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
         <div className="flex flex-col sm:flex-row items-center gap-3 flex-1 w-full">
@@ -491,6 +544,8 @@ export default function CentroCustosPage() {
           />
         )}
       </div>
+      </>
+      )}
 
       {/* Modal: Formulário de Centro de Custos */}
       <AnimatePresence>

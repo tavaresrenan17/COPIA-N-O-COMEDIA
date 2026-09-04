@@ -122,14 +122,15 @@ export function OrcamentoSpreadsheetEditor({
   const [modalSearch, setModalSearch] = useState('');
 
   /*
-   * Unidade Construtiva à mão só no híbrido `centro_custo_obra`.
+   * Unidade Construtiva à mão só onde a lista é livre — ver `aceitaUnidadeLivre`:
+   * o híbrido `centro_custo_obra` e a `frota`, cujas unidades são as máquinas.
    *
    * O tipo `obra` tem lista FIXA — as unidades nascem com a obra e a lista é
    * fechada, então criar mais uma aqui contraria a regra. E o orçamento se
    * prende a qualquer centro de custo raiz (a tela de Orçamentos monta a
    * lista por `!cc.parentId`, sem olhar o tipo), então sem esta guarda o
-   * botão também aparecia em centro de custo administrativo, de frota ou
-   * comercial — que não têm unidade construtiva nenhuma.
+   * botão também aparecia em centro de custo administrativo ou comercial —
+   * que não têm unidade construtiva nenhuma.
    */
   const podeCriarUnidade = !isReadonly && aceitaUnidadeLivre(obraTipo);
 

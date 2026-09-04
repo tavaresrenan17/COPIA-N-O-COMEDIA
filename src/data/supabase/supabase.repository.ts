@@ -2281,6 +2281,60 @@ export class SupabaseErpRepository implements IErpRepository {
 
     const temCodigo = await this.temColuna('orcamento_item', 'codigo');
 
+    /*
+     * Quais itens têm distribuição mensal gravada — UMA consulta para o
+     * orçamento inteiro.
+     *
+     * O laço abaixo apagava os períodos de todo item, sempre, mesmo quando não
+     * havia nenhum para apagar. Numa planilha de frota (11 máquinas × 9 itens =
+     * ~99 itens) isso é uma centena de DELETEs sequenciais que não removem nada,
+     * dobrando o tempo de um salvamento que já é lento. Aqui a lista é lida uma
+     * vez e o DELETE só sai para item que realmente tem período gravado.
+     */
+    const itensComPeriodo = new Set<string>();
+    if (idsExistentes.size > 0) {
+      /*
+       * Paginado de propósito. O PostgREST corta a resposta no "Max rows" do
+       * projeto (1000 por padrão) SEM avisar, e período é uma linha por mês:
+       * a partir de ~84 itens a lista voltaria truncada, os itens do fim
+       * pareceriam "sem período", o DELETE deles seria pulado e o INSERT
+       * seguinte violaria `unique_item_mes_referencia` no meio do laço —
+       * deixando o orçamento meio reescrito. Lê em blocos até acabar.
+       */
+      const TAMANHO_BLOCO = 1000;
+      let inicio = 0;
+      let truncou = false;
+
+      for (;;) {
+        const { data: periodosRaw, error: perErro } = await this.client!
+          .from('orcamento_item_periodo')
+          .select('orcamento_item_id')
+          .in('orcamento_item_id', [...idsExistentes])
+          .range(inicio, inicio + TAMANHO_BLOCO - 1);
+
+        /*
+         * Falha de leitura NÃO pode virar "nenhum item tem período": isso
+         * pularia o DELETE e deixaria a distribuição antiga somada à nova. Na
+         * dúvida, trata todos como se tivessem — volta ao comportamento
+         * anterior, que é mais lento mas correto.
+         */
+        if (perErro) {
+          truncou = true;
+          break;
+        }
+
+        const bloco = (periodosRaw ?? []) as any[];
+        for (const p of bloco) itensComPeriodo.add(p.orcamento_item_id as string);
+        if (bloco.length < TAMANHO_BLOCO) break;
+        inicio += TAMANHO_BLOCO;
+      }
+
+      if (truncou) {
+        itensComPeriodo.clear();
+        for (const id of idsExistentes) itensComPeriodo.add(id);
+      }
+    }
+
     let totalCentavos = 0;
 
     for (let i = 0; i < itens.length; i++) {
@@ -2327,14 +2381,18 @@ export class SupabaseErpRepository implements IErpRepository {
       // O plano de contas do item pode ter mudado neste salvamento.
       this.planoContaDeItem.delete(itemId);
 
-      // Períodos não são referenciados por ninguém: aqui trocar tudo é seguro.
-      const { error: delPer } = await this.client!
-        .from('orcamento_item_periodo')
-        .delete()
-        .eq('orcamento_item_id', itemId);
-      if (delPer) throw new Error(`Falha ao limpar a distribuição mensal do item ${i + 1}: ${delPer.message}`);
-
       const periodos = (item.periodos ?? []).filter(pe => pe.valorCentavos > 0);
+
+      // Períodos não são referenciados por ninguém: aqui trocar tudo é seguro.
+      // Item sem período gravado e sem período novo não tem o que limpar.
+      if (itensComPeriodo.has(itemId)) {
+        const { error: delPer } = await this.client!
+          .from('orcamento_item_periodo')
+          .delete()
+          .eq('orcamento_item_id', itemId);
+        if (delPer) throw new Error(`Falha ao limpar a distribuição mensal do item ${i + 1}: ${delPer.message}`);
+      }
+
       if (periodos.length > 0) {
         const { error: pErro } = await this.client!.from('orcamento_item_periodo').insert(
           periodos.map(pe => ({

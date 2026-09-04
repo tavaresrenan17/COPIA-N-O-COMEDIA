@@ -37,7 +37,7 @@ export interface SecaoNavegacao {
  * Rotas de topo, fora de qualquer departamento. Batem com os itens globais que a
  * sidebar mostra na Home.
  */
-const ROTAS_TOPO = ['/cadastros', '/departamentos', '/relatorios'];
+const ROTAS_TOPO = ['/departamentos', '/relatorios'];
 
 /**
  * Títulos de tela, quando o rótulo do menu é curto demais para a barra de cima.
@@ -169,8 +169,8 @@ export function secoesNavegacao(): SecaoNavegacao[] {
 
     const itens: ItemNavegacao[] = [];
 
-    // O hub do departamento entra primeiro, quando não é um dos módulos.
-    if (!dept.modules.some((m) => m.href === dept.baseHref) && !jaUsadas.has(dept.baseHref)) {
+    // O hub do departamento entra primeiro quando existir e não for um dos módulos.
+    if (!dept.semHub && !dept.modules.some((m) => m.href === dept.baseHref) && !jaUsadas.has(dept.baseHref)) {
       jaUsadas.add(dept.baseHref);
       itens.push({
         href: dept.baseHref,
@@ -300,7 +300,7 @@ export function paginaAnterior(caminho: string): string | null {
   if (ROTAS_TOPO.includes(atual)) return '/';
 
   const dept = departamentoDaRotaExata(atual);
-  if (dept && dept.baseHref !== atual) return dept.baseHref;
+  if (dept && dept.baseHref !== atual) return dept.semHub ? '/' : dept.baseHref;
 
   // É o hub de um departamento (ou um baseHref que também é rota de topo).
   const ehBaseHref = Object.values(DEPARTMENTS).some((d) => d.baseHref === atual);

@@ -10,6 +10,7 @@ import {
   ExclusaoOrcamentoPrevia
 } from '@/data';
 import { formatCurrency } from '@/lib/formatters';
+import { planosDeCusto } from '@/lib/planoContas';
 import { OrcamentoSpreadsheetEditor } from '@/components/OrcamentoSpreadsheetEditor';
 import { ImportExcelOrcamentoModal } from '@/components/ImportExcelOrcamentoModal';
 import { AcompanhamentoOrcamentarioView } from '@/components/AcompanhamentoOrcamentarioView';
@@ -131,19 +132,9 @@ function OrcamentosPage() {
 
     setCentrosCusto(ccs);
     setLinhasGestao(lgs);
-    /*
-     * Orçamento de obra é de CUSTO — conta de receita não entra.
-     *
-     * A planilha não tem coluna de plano financeiro: toda linha herda o
-     * primeiro item desta lista. Sem o filtro de natureza, o primeiro por
-     * código era "1.1 Receita operacional", e TODO item de orçamento nascia
-     * classificado em receita. O título a pagar apropriado nesse item herdava
-     * a conta de receita e o repositório recusava o salvamento — o erro
-     * aparecia no título, longe de onde nasceu.
-     */
-    const ehCusto = (p: PlanoConta) => p.natureza !== 'receita';
-    const n2 = pcs.filter(p => ehCusto(p) && (p.nivel === 2 || (p.codigo.split('.').length === 2 && !p.aceitaLancamento)));
-    setPlanosNivel2(n2.length > 0 ? n2 : pcs.filter(p => ehCusto(p) && p.nivel === 2));
+    // A planilha não tem coluna de plano financeiro: toda linha herda o primeiro
+    // item desta lista. O porquê do filtro está em `planosDeCusto`.
+    setPlanosNivel2(planosDeCusto(pcs));
 
     const raizes = ccs.filter(cc => !cc.parentId);
     if (raizes.length > 0) setFormCcId(raizes[0].id);
@@ -315,13 +306,21 @@ function OrcamentosPage() {
     
     // Converte os itens importados para o formato da planilha
     const novosItens = itensValidados.map(it => {
+      /*
+       * O último mês absorve a sobra do arredondamento.
+       *
+       * Doze parcelas de `round(total/12)` quase nunca somam o total — R$ 100,00
+       * vira 12 × R$ 8,33 = R$ 99,96. A distribuição precisa fechar: o mock
+       * recusa o salvamento, e o Supabase aceita e guarda um orçamento cuja
+       * soma dos meses não bate com o valor do item.
+       */
       const valorMensal = Math.round(it.valorTotalCentavos / 12);
       const periodos = [];
       for (let m = 1; m <= 12; m++) {
         const mm = m < 10 ? `0${m}` : `${m}`;
         periodos.push({
           mesReferencia: `2026-${mm}-01`,
-          valorCentavos: valorMensal
+          valorCentavos: m === 12 ? it.valorTotalCentavos - valorMensal * 11 : valorMensal
         });
       }
       return {

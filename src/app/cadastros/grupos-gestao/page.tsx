@@ -121,7 +121,7 @@ export default function GruposGestaoPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs">
         <div className="flex items-center gap-3">
           <Link
-            href="/cadastros"
+            href="/"
             className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />

@@ -60,6 +60,7 @@ export interface DepartmentConfig {
   cadastros: DepartmentModule[];
   kpis: DepartmentKPI[];
   inativo?: boolean;
+  semHub?: boolean;
 
   /**
    * Rótulo do hub do departamento no menu e no título da tela.
@@ -341,7 +342,7 @@ export const DEPARTMENTS: Record<string, DepartmentConfig> = {
     themeColor: 'bg-indigo-600',
     accentBg: 'from-indigo-900/40 to-slate-900/40',
     baseHref: '/cadastros',
-    hubLabel: 'Hub de Cadastros',
+    semHub: true,
     ocultoNoHub: true,
     modules: [
       {

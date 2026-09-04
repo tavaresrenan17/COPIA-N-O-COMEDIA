@@ -276,6 +276,37 @@ let mockOrcamentos: OrcamentoDAV[] = [];
 let mockTitulos: Titulo[] = [];
 let mockMovimentos: Movimento[] = [];
 
+/**
+ * A distribuição mensal de um item tem de fechar com o valor total dele.
+ *
+ * Só vale para item que REALMENTE traz períodos. Antes a checagem era
+ * incondicional, e como as telas gravam `periodos: []` — o editor de planilha
+ * faz isso em OrcamentoSpreadsheetEditor (`payload.periodos = []`) — qualquer
+ * item com valor acima de zero era recusado aqui com "a soma dos meses não
+ * confere", uma mensagem sobre meses que a tela nem oferece. O repositório
+ * Supabase nunca teve essa recusa: ele descarta período zerado e grava.
+ *
+ * Resultado: o fluxo funcionava em produção e falhava no mock, que é
+ * justamente onde ele é validado.
+ */
+function validarFechamentoDosPeriodos(
+  itens: { planoContaId: string; valorTotalCentavos: number; periodos?: { valorCentavos: number }[] }[]
+): void {
+  for (const item of itens) {
+    if (!item.periodos || item.periodos.length === 0) continue;
+
+    const somaPeriodos = item.periodos.reduce((sum, p) => sum + p.valorCentavos, 0);
+    if (somaPeriodos !== item.valorTotalCentavos) {
+      const pc = mockPlanoContas.find(p => p.id === item.planoContaId);
+      throw new Error(
+        `A soma dos meses (R$ ${(somaPeriodos / 100).toFixed(2)}) não confere com o valor total do item ` +
+        `"${pc?.codigo} ${pc?.nome}" (R$ ${(item.valorTotalCentavos / 100).toFixed(2)}). ` +
+        'Ajuste os meses antes de salvar.'
+      );
+    }
+  }
+}
+
 export class MockErpRepository implements IErpRepository {
   // ---------------------------------------------------------------------------
   // 1. PESSOA
@@ -1907,14 +1938,7 @@ export class MockErpRepository implements IErpRepository {
       throw new Error(`O Centro de Custo ${cc?.nome || ''} já possui um Orçamento Aprovado no período de ${sobreposto.dataInicio} a ${sobreposto.dataFim}. Para alterar, crie uma revisão.`);
     }
 
-    // Validação de fechamento da distribuição periódica de cada item
-    for (const item of data.itens) {
-      const pc = mockPlanoContas.find(p => p.id === item.planoContaId);
-      const somaPeriodos = item.periodos.reduce((sum, p) => sum + p.valorCentavos, 0);
-      if (somaPeriodos !== item.valorTotalCentavos) {
-        throw new Error(`A soma dos meses (R$ ${(somaPeriodos/100).toFixed(2)}) não confere com o valor total do item "${pc?.codigo} ${pc?.nome}" (R$ ${(item.valorTotalCentavos/100).toFixed(2)}). Ajuste os meses antes de salvar.`);
-      }
-    }
+    validarFechamentoDosPeriodos(data.itens);
 
     const id = novoId('orc-emp');
     let valorTotalGeral = 0;
@@ -2022,14 +2046,7 @@ export class MockErpRepository implements IErpRepository {
     if (data.observacao !== undefined) target.observacao = data.observacao;
 
     if (data.itens) {
-      // Validação de fechamento da distribuição periódica de cada item
-      for (const item of data.itens) {
-        const pc = mockPlanoContas.find(p => p.id === item.planoContaId);
-        const somaPeriodos = item.periodos.reduce((sum, p) => sum + p.valorCentavos, 0);
-        if (somaPeriodos !== item.valorTotalCentavos) {
-          throw new Error(`A soma dos meses (R$ ${(somaPeriodos/100).toFixed(2)}) não confere com o valor total do item "${pc?.codigo} ${pc?.nome}" (R$ ${(item.valorTotalCentavos/100).toFixed(2)}). Ajuste os meses antes de salvar.`);
-        }
-      }
+      validarFechamentoDosPeriodos(data.itens);
 
       let valorTotalGeral = 0;
       target.itens = data.itens.map((it, itemIdx) => {
